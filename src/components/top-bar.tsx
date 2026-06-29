@@ -10,7 +10,7 @@ export function TopBar() {
   const pathname = usePathname();
 
   return (
-    <header className="flex items-center justify-between gap-4 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
+    <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
       <div className="flex items-center gap-4">
         <span className="text-sm font-semibold tracking-tight">RAG</span>
         <nav className="flex gap-1 text-sm">
@@ -29,7 +29,7 @@ export function TopBar() {
           value={selectedId ?? ""}
           onChange={(e) => setSelectedId(e.target.value)}
           disabled={loading || collections.length === 0}
-          className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          className="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 outline-none transition-colors focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
         >
           {collections.length === 0 && <option value="">No collections</option>}
           {collections.map((c) => (
@@ -57,8 +57,8 @@ function NavLink({
       href={href}
       className={
         active
-          ? "rounded-md bg-zinc-900 px-2.5 py-1 text-white dark:bg-zinc-100 dark:text-zinc-900"
-          : "rounded-md px-2.5 py-1 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          ? "rounded-md bg-accent/10 px-2.5 py-1 font-medium text-accent"
+          : "rounded-md px-2.5 py-1 text-zinc-600 transition-colors hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
       }
     >
       {children}

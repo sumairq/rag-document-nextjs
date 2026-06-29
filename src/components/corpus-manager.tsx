@@ -202,10 +202,12 @@ export function CorpusManager() {
                 className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{doc.filename}</p>
-                  <p className="text-xs text-zinc-400">
-                    <StatusBadge status={doc.status} /> · {doc.chunkCount} chunks ·{" "}
-                    {fmtBytes(doc.byteSize)}
+                  <div className="flex items-center gap-2">
+                    <StatusBadge status={doc.status} />
+                    <p className="truncate text-sm font-medium">{doc.filename}</p>
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-400">
+                    {doc.chunkCount} chunks · {fmtBytes(doc.byteSize)}
                     {doc.error ? ` · ${doc.error}` : ""}
                   </p>
                 </div>
@@ -227,11 +229,17 @@ export function CorpusManager() {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const color =
+  const styles =
     status === "ready"
-      ? "text-green-600 dark:text-green-400"
+      ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400"
       : status === "failed"
-        ? "text-red-600 dark:text-red-400"
-        : "text-amber-600 dark:text-amber-400";
-  return <span className={color}>{status}</span>;
+        ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400"
+        : "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400";
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${styles}`}
+    >
+      {status}
+    </span>
+  );
 }

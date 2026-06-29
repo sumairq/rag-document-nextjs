@@ -1,36 +1,66 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RAG App
 
-## Getting Started
+Upload documents, then chat with an AI that answers **only** from those
+documents, with citations back to the source.
 
-First, run the development server:
+**Stack:** Next.js (App Router) + TypeScript + Tailwind · Postgres + pgvector ·
+Drizzle ORM · Google Gemini (swappable provider).
+
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full data flow, schema, and
+design rationale.
+
+> **Status:** foundation only. Ingestion, retrieval, and the chat UI are not
+> built yet.
+
+## Prerequisites
+
+- Node.js 20+ and npm
+- Docker (with the daemon running)
+
+## Setup
 
 ```bash
+# 1. Install dependencies
+npm install
+
+# 2. Configure environment
+cp .env.example .env.local
+# then edit .env.local and set GEMINI_API_KEY (from https://aistudio.google.com/apikey)
+
+# 3. Start Postgres + pgvector
+npm run db:up
+
+# 4. Apply the database schema
+npm run db:migrate
+
+# 5. Run the dev server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+App runs at http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Confirm pgvector loaded
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+docker compose exec db psql -U postgres -d ragdb \
+  -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';"
+```
 
-## Learn More
+> **Docker permissions:** if you get `permission denied … /var/run/docker.sock`,
+> add yourself to the `docker` group once with
+> `sudo usermod -aG docker $USER` and open a new shell, or prefix the `docker`
+> commands above with `sudo`.
 
-To learn more about Next.js, take a look at the following resources:
+## Scripts
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Script               | Description                                  |
+| -------------------- | -------------------------------------------- |
+| `npm run dev`        | Start the Next.js dev server                 |
+| `npm run build`      | Production build                             |
+| `npm run typecheck`  | `tsc --noEmit`                               |
+| `npm run lint`       | ESLint                                       |
+| `npm run db:up`      | Start Postgres + pgvector (Docker)           |
+| `npm run db:down`    | Stop the database container                  |
+| `npm run db:generate`| Generate a migration from the Drizzle schema |
+| `npm run db:migrate` | Apply pending migrations                     |
+| `npm run db:studio`  | Open Drizzle Studio                          |

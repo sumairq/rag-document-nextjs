@@ -1,4 +1,5 @@
 import { answerQuestion } from "@/lib/generation/answer";
+import { classifyError } from "@/lib/errors";
 import {
   NDJSON_CONTENT_TYPE,
   type ChatStreamEvent,
@@ -67,8 +68,9 @@ export async function POST(req: Request): Promise<Response> {
   try {
     result = await answerQuestion(question, { collectionId });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Generation failed.";
-    return jsonError(message, 500);
+    console.error("[/api/chat] generation failed:", err);
+    const { status, message } = classifyError(err, "chat");
+    return jsonError(message, status);
   }
 
   const citations: CitationPayload[] = result.citations.map((c) => ({

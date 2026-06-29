@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { documents } from "@/db/schema";
 import { getCollectionById } from "@/lib/collections";
+import { classifyError } from "@/lib/errors";
 import { ingestUpload } from "@/lib/ingest/pipeline";
 
 export const runtime = "nodejs";
@@ -64,6 +65,12 @@ export async function POST(req: Request): Promise<Response> {
   if (!collection) {
     return Response.json({ error: "Collection not found." }, { status: 404 });
   }
+  if (collection.isSample) {
+    return Response.json(
+      { error: "Sample collections are read-only. Create your own collection to upload." },
+      { status: 403 },
+    );
+  }
 
   const buffer = Buffer.from(await file.arrayBuffer());
 
@@ -71,9 +78,8 @@ export async function POST(req: Request): Promise<Response> {
     const result = await ingestUpload(buffer, file.name, { collectionId });
     return Response.json(result, { status: result.skipped ? 200 : 201 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Ingestion failed.";
-    // Unsupported type / empty parse are user errors (400); anything else 500.
-    const status = /unsupported|empty/i.test(message) ? 400 : 500;
+    console.error("[/api/documents] ingestion failed:", err);
+    const { status, message } = classifyError(err, "ingest");
     return Response.json({ error: message }, { status });
   }
 }

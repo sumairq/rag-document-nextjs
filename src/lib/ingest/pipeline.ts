@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { chunks as chunksTable, documents } from "@/db/schema";
 import { getAIProvider } from "@/lib/ai";
+import { classifyError } from "@/lib/errors";
 
 import type { ChunkOptions } from "./chunk";
 import { prepareDocument, readAndPrepare, type PreparedDocument } from "./prepare";
@@ -140,7 +141,8 @@ export async function storePrepared(
       embeddingDimensions: ai.embeddings.dimensions,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    // Store a concise, user-readable reason (not raw provider JSON).
+    const { message } = classifyError(error, "ingest");
     await db
       .update(documents)
       .set({ status: "failed", error: message, updatedAt: new Date() })

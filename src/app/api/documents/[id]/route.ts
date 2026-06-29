@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { documents } from "@/db/schema";
+import { collections, documents } from "@/db/schema";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,14 +13,24 @@ export async function DELETE(
 ): Promise<Response> {
   const { id } = await params;
 
-  const deleted = await db
-    .delete(documents)
+  // Look up the document's collection so we can protect read-only samples.
+  const [doc] = await db
+    .select({ id: documents.id, isSample: collections.isSample })
+    .from(documents)
+    .innerJoin(collections, eq(documents.collectionId, collections.id))
     .where(eq(documents.id, id))
-    .returning({ id: documents.id });
+    .limit(1);
 
-  if (deleted.length === 0) {
+  if (!doc) {
     return Response.json({ error: "Document not found." }, { status: 404 });
   }
+  if (doc.isSample) {
+    return Response.json(
+      { error: "Sample collections are read-only." },
+      { status: 403 },
+    );
+  }
 
-  return Response.json({ deleted: deleted[0].id });
+  await db.delete(documents).where(eq(documents.id, id));
+  return Response.json({ deleted: id });
 }

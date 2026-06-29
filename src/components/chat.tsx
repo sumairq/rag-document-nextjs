@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatStreamEvent, CitationPayload } from "@/lib/chat/protocol";
 import { SourcePanel } from "@/components/source-panel";
 import { useCollections } from "@/components/collection-provider";
+import { startersFor } from "@/lib/starter-prompts";
 
 interface Message {
   id: string;
@@ -49,8 +50,8 @@ export function Chat() {
       prev.map((m) => (m.id === id ? { ...m, ...patch } : m)),
     );
 
-  async function sendQuestion() {
-    const question = input.trim();
+  async function sendQuestion(text?: string) {
+    const question = (text ?? input).trim();
     if (!question || isStreaming) return;
 
     const userMessage: Message = {
@@ -130,6 +131,7 @@ export function Chat() {
   }
 
   const canSend = input.trim().length > 0 && !isStreaming;
+  const starters = startersFor(selected?.slug);
 
   return (
     <div className="flex flex-1 flex-col">
@@ -147,9 +149,29 @@ export function Chat() {
       <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-6">
         <div className="mx-auto flex max-w-2xl flex-col gap-6">
           {messages.length === 0 && (
-            <p className="mt-12 text-center text-sm text-zinc-400">
-              Ask a question about your documents to get started.
-            </p>
+            <div className="mt-12 flex flex-col items-center gap-3">
+              {starters.length > 0 ? (
+                <>
+                  <p className="text-sm text-zinc-400">Try asking…</p>
+                  <div className="flex flex-col items-stretch gap-2">
+                    {starters.map((prompt) => (
+                      <button
+                        key={prompt}
+                        onClick={() => void sendQuestion(prompt)}
+                        disabled={isStreaming}
+                        className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm text-zinc-700 transition-colors hover:border-zinc-500 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:bg-zinc-800"
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-zinc-400">
+                  Ask a question about your documents to get started.
+                </p>
+              )}
+            </div>
           )}
 
           {messages.map((m) => (

@@ -2,11 +2,18 @@
  * CLI: ingest a local file into the database as embedded chunks.
  *
  *   npm run ingest ./sample.pdf
- *   npm run ingest -- ./notes.txt --force      # re-ingest a duplicate
- *   npm run ingest -- ./sample.pdf --dry-run   # parse + chunk only (no embed/DB)
+ *   npm run ingest -- ./notes.txt --force          # re-ingest a duplicate
+ *   npm run ingest -- ./sample.pdf --dry-run        # parse + chunk only (no embed/DB)
+ *   npm run ingest -- ./sample.txt --chunk-tokens 150 --overlap 30   # tune chunk size
  *
- * NOTE: flags like --dry-run / --force must come after `--`, otherwise npm
- * intercepts them as its own options. The positional file path needs no `--`.
+ * Flags (defaults in parens):
+ *   --dry-run                parse + chunk only, no embedding/DB
+ *   --force                  re-ingest even if the same content already exists
+ *   --chunk-tokens <n>       target chunk size in tokens (800)
+ *   --overlap <n>            overlap between chunks in tokens (150)
+ *
+ * NOTE: flags must come after `--`, otherwise npm intercepts them as its own
+ * options. The positional file path needs no `--`.
  *
  * --dry-run needs no API key and no database — handy for sanity-checking the
  * parser and chunker before wiring up embeddings/Postgres.
@@ -16,13 +23,24 @@ import { config } from "dotenv";
 // Load env BEFORE importing anything that reads it (db client, provider).
 config({ path: ".env.local" });
 
-type Args = { filePath?: string; dryRun: boolean; force: boolean };
+type Args = {
+  filePath?: string;
+  dryRun: boolean;
+  force: boolean;
+  /** Override target chunk size in tokens (default 800). */
+  chunkTokens?: number;
+  /** Override chunk overlap in tokens (default 150). */
+  overlapTokens?: number;
+};
 
 function parseArgs(argv: string[]): Args {
   const result: Args = { dryRun: false, force: false };
-  for (const arg of argv) {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
     if (arg === "--dry-run") result.dryRun = true;
     else if (arg === "--force") result.force = true;
+    else if (arg === "--chunk-tokens") result.chunkTokens = Number(argv[++i]) || undefined;
+    else if (arg === "--overlap") result.overlapTokens = Number(argv[++i]) || undefined;
     else if (!arg.startsWith("-") && !result.filePath) result.filePath = arg;
   }
   return result;
@@ -47,7 +65,10 @@ async function main() {
   // --- Dry run: parse + chunk only, no DB/provider imports ---
   if (args.dryRun) {
     const { readAndPrepare } = await import("@/lib/ingest/prepare");
-    const prepared = await readAndPrepare(args.filePath);
+    const prepared = await readAndPrepare(args.filePath, {
+      targetTokens: args.chunkTokens,
+      overlapTokens: args.overlapTokens,
+    });
     console.log(`  type:    ${prepared.mimeType}`);
     console.log(`  size:    ${fmtBytes(prepared.byteSize)}`);
     console.log(`  text:    ${prepared.text.length.toLocaleString()} chars`);
@@ -73,6 +94,8 @@ async function main() {
   const { ingestFile } = await import("@/lib/ingest/pipeline");
   const result = await ingestFile(args.filePath, {
     force: args.force,
+    targetTokens: args.chunkTokens,
+    overlapTokens: args.overlapTokens,
     onProgress: (event) => {
       switch (event.type) {
         case "prepared":

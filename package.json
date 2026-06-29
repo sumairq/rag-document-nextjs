@@ -9,6 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "ingest": "tsx scripts/ingest.ts",
+    "search": "tsx scripts/search.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:push": "drizzle-kit push",

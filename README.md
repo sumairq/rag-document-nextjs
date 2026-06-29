@@ -65,6 +65,19 @@ npm run ingest -- ./sample.txt --force   # re-ingest a duplicate (same content h
 > doesn't. A full run requires `GEMINI_API_KEY` set and the database running;
 > `--dry-run` requires neither.
 
+## Searching (retrieval only)
+
+Run a vector similarity search over ingested chunks — no LLM involved:
+
+```bash
+npm run search "what is chunk overlap for?"
+npm run search -- "cosine vs L2 distance" --k 10   # flags after --
+npm run search -- "pgvector index" --doc <document-id>
+```
+
+Prints the top-k chunks ranked by cosine similarity, each with its score and
+source document.
+
 ### Inspect what landed
 
 ```bash
@@ -95,6 +108,7 @@ docker compose exec db psql -U postgres -d ragdb -c \
 | `npm run typecheck`  | `tsc --noEmit`                               |
 | `npm run lint`       | ESLint                                       |
 | `npm run ingest`     | Ingest a local file (see above)              |
+| `npm run search`     | Vector similarity search over chunks         |
 | `npm run db:up`      | Start Postgres + pgvector (Docker)           |
 | `npm run db:down`    | Stop the database container                  |
 | `npm run db:generate`| Generate a migration from the Drizzle schema |

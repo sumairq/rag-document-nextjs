@@ -114,6 +114,8 @@ export function CorpusManager() {
     }
   }
 
+  const isReadOnly = selected?.isSample ?? false;
+
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-6">
       <div className="mb-6">
@@ -142,35 +144,43 @@ export function CorpusManager() {
         </button>
       </form>
 
-      {/* Upload */}
-      <div className="mb-6 rounded-lg border border-dashed border-zinc-300 p-4 dark:border-zinc-700">
-        <p className="mb-2 text-sm font-medium">Add a document</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".pdf,.docx,.txt,.md"
-            disabled={!selectedId || upload.status === "uploading"}
-            className="text-sm text-zinc-600 file:mr-3 file:rounded-md file:border-0 file:bg-zinc-900 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white dark:text-zinc-400 dark:file:bg-zinc-100 dark:file:text-zinc-900"
-          />
-          <button
-            onClick={onUpload}
-            disabled={!selectedId || upload.status === "uploading"}
-            className="rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
-          >
-            {upload.status === "uploading" ? "Ingesting…" : "Upload"}
-          </button>
+      {/* Upload (hidden for read-only sample collections) */}
+      {isReadOnly ? (
+        <div className="mb-6 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+          This is a preloaded <span className="font-medium">sample</span> collection
+          (read-only). Create your own collection above to upload and manage
+          documents.
         </div>
-        <p className="mt-2 text-xs text-zinc-400">PDF, DOCX, TXT, or Markdown.</p>
-        {upload.status === "uploading" && (
-          <p className="mt-2 text-xs text-zinc-500">
-            Ingesting “{upload.name}” — parsing, chunking, embedding…
-          </p>
-        )}
-        {upload.status === "error" && (
-          <p className="mt-2 text-xs text-red-600 dark:text-red-400">{upload.message}</p>
-        )}
-      </div>
+      ) : (
+        <div className="mb-6 rounded-lg border border-dashed border-zinc-300 p-4 dark:border-zinc-700">
+          <p className="mb-2 text-sm font-medium">Add a document</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".pdf,.docx,.txt,.md"
+              disabled={!selectedId || upload.status === "uploading"}
+              className="text-sm text-zinc-600 file:mr-3 file:rounded-md file:border-0 file:bg-zinc-900 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white dark:text-zinc-400 dark:file:bg-zinc-100 dark:file:text-zinc-900"
+            />
+            <button
+              onClick={onUpload}
+              disabled={!selectedId || upload.status === "uploading"}
+              className="rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+            >
+              {upload.status === "uploading" ? "Ingesting…" : "Upload"}
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-zinc-400">PDF, DOCX, TXT, or Markdown.</p>
+          {upload.status === "uploading" && (
+            <p className="mt-2 text-xs text-zinc-500">
+              Ingesting “{upload.name}” — parsing, chunking, embedding…
+            </p>
+          )}
+          {upload.status === "error" && (
+            <p className="mt-2 text-xs text-red-600 dark:text-red-400">{upload.message}</p>
+          )}
+        </div>
+      )}
 
       {/* Document list */}
       <div>
@@ -199,12 +209,14 @@ export function CorpusManager() {
                     {doc.error ? ` · ${doc.error}` : ""}
                   </p>
                 </div>
-                <button
-                  onClick={() => onDelete(doc)}
-                  className="shrink-0 rounded-md border border-zinc-300 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-zinc-700 dark:text-red-400 dark:hover:bg-red-950"
-                >
-                  Remove
-                </button>
+                {!isReadOnly && (
+                  <button
+                    onClick={() => onDelete(doc)}
+                    className="shrink-0 rounded-md border border-zinc-300 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-zinc-700 dark:text-red-400 dark:hover:bg-red-950"
+                  >
+                    Remove
+                  </button>
+                )}
               </li>
             ))}
           </ul>

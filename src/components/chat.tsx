@@ -149,17 +149,24 @@ export function Chat() {
       <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-6">
         <div className="mx-auto flex max-w-2xl flex-col gap-6">
           {messages.length === 0 && (
-            <div className="mt-12 flex flex-col items-center gap-3">
+            <div className="mt-16 flex flex-col items-center gap-4 text-center">
               {starters.length > 0 ? (
                 <>
-                  <p className="text-sm text-zinc-400">Try asking…</p>
+                  <div className="flex flex-col items-center gap-1">
+                    <h2 className="text-lg font-semibold tracking-tight">
+                      Ask {selected ? `“${selected.name}”` : "your documents"}
+                    </h2>
+                    <p className="text-[13px] text-zinc-500">
+                      Try one of these to get started
+                    </p>
+                  </div>
                   <div className="flex flex-col items-stretch gap-2">
                     {starters.map((prompt) => (
                       <button
                         key={prompt}
                         onClick={() => void sendQuestion(prompt)}
                         disabled={isStreaming}
-                        className="rounded-full border border-zinc-300 px-4 py-1.5 text-sm text-zinc-700 transition-colors hover:border-zinc-500 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:bg-zinc-800"
+                        className="rounded-full border border-zinc-200 px-4 py-2 text-sm text-zinc-700 transition-colors hover:border-accent hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:border-accent dark:hover:text-accent"
                       >
                         {prompt}
                       </button>
@@ -167,7 +174,7 @@ export function Chat() {
                   </div>
                 </>
               ) : (
-                <p className="text-sm text-zinc-400">
+                <p className="mt-4 text-sm text-zinc-500">
                   Ask a question about your documents to get started.
                 </p>
               )}
@@ -204,12 +211,12 @@ export function Chat() {
             rows={1}
             placeholder="Ask a question…"
             disabled={isStreaming}
-            className="flex-1 resize-none rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900"
+            className="flex-1 resize-none rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none transition-colors focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900"
           />
           <button
             onClick={() => void sendQuestion()}
             disabled={!canSend}
-            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+            className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
           >
             {isStreaming ? "…" : "Send"}
           </button>
@@ -230,55 +237,76 @@ function MessageBubble({
 }) {
   const isUser = message.role === "user";
 
+  // User questions stay a small right-aligned pill; the assistant answer is
+  // rendered as plain prose in the column so the *answer* is the visual anchor.
+  if (isUser) {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] rounded-2xl bg-zinc-100 px-4 py-2 text-sm text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100">
+          {message.content}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={isUser ? "flex justify-end" : "flex justify-start"}>
-      <div className={isUser ? "max-w-[85%]" : "w-full"}>
-        <div
-          className={
-            isUser
-              ? "rounded-2xl bg-zinc-900 px-4 py-2 text-sm text-white dark:bg-zinc-100 dark:text-zinc-900"
-              : message.error
-                ? "rounded-2xl border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300"
-                : "rounded-2xl bg-zinc-100 px-4 py-2 text-sm whitespace-pre-wrap text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
-          }
-        >
-          {message.content || (streaming ? "" : " ")}
-          {/* Show a blinking caret while the answer is still streaming and empty. */}
-          {streaming && !message.content && (
-            <span className="text-zinc-400">Thinking…</span>
-          )}
+    <div className="w-full">
+      {message.error ? (
+        <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          {message.content}
+        </div>
+      ) : (
+        <div className="text-[16px] leading-7 whitespace-pre-wrap text-zinc-900 dark:text-zinc-100">
+          {message.content}
+          {/* Streaming indicators: pulsing dots before the first token, then a
+              slim blinking caret trailing the text as it grows. */}
+          {streaming && !message.content && <ThinkingDots />}
           {streaming && message.content && (
-            <span className="ml-0.5 inline-block animate-pulse">▍</span>
+            <span className="ml-0.5 inline-block h-[1.1em] w-[2px] -mb-0.5 animate-pulse bg-zinc-500 align-middle" />
           )}
         </div>
+      )}
 
-        {!isUser && message.citations && message.citations.length > 0 && (
-          <div className="mt-2 flex flex-col gap-1.5">
-            <p className="text-xs font-medium text-zinc-500">Citations</p>
-            {message.citations.map((c) => (
-              <button
-                key={c.chunkId}
-                onClick={() => onOpenSource({ chunkId: c.chunkId, quote: c.quote })}
-                className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-left text-xs transition-colors hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
-              >
-                <div className="font-medium text-zinc-700 dark:text-zinc-300">
-                  [{c.marker}] {c.documentFilename}
-                  <span className="font-normal text-zinc-400">
-                    {" "}
-                    · chunk {c.chunkIndex}
-                    {c.page != null ? ` · p.${c.page}` : ""} · score{" "}
-                    {c.similarity.toFixed(3)}
-                  </span>
-                </div>
-                <p className="mt-1 text-zinc-500">{c.snippet}</p>
-                <span className="mt-1 inline-block text-zinc-400 underline">
-                  View source →
+      {message.citations && message.citations.length > 0 && (
+        <div className="mt-4 flex flex-col gap-2">
+          <p className="text-[11px] font-semibold tracking-wide text-zinc-400 uppercase">
+            Sources
+          </p>
+          {message.citations.map((c) => (
+            <button
+              key={c.chunkId}
+              onClick={() => onOpenSource({ chunkId: c.chunkId, quote: c.quote })}
+              className="group flex items-start gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-left transition-colors hover:border-accent/60 hover:bg-accent/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-accent/60 dark:hover:bg-accent/10"
+            >
+              <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-accent/10 text-[11px] font-semibold text-accent">
+                {c.marker}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-medium text-zinc-700 dark:text-zinc-300">
+                  {c.documentFilename}
+                  {c.page != null && (
+                    <span className="font-normal text-zinc-400"> · p.{c.page}</span>
+                  )}
                 </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+                <span className="mt-0.5 block line-clamp-2 text-xs text-zinc-500">
+                  {c.snippet}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+/** Three pulsing dots shown while the answer is still being generated. */
+function ThinkingDots() {
+  return (
+    <span className="inline-flex items-center gap-1 align-middle text-zinc-400">
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
+      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current" />
+    </span>
   );
 }

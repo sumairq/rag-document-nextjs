@@ -1,11 +1,11 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { chunks as chunksTable, documents } from "@/db/schema";
 import { getAIProvider } from "@/lib/ai";
 
 import type { ChunkOptions } from "./chunk";
-import { readAndPrepare } from "./prepare";
+import { prepareDocument, readAndPrepare, type PreparedDocument } from "./prepare";
 
 // Gemini's embedContent accepts a batch of texts per call; keep batches modest
 // to stay within request limits and to surface progress.
@@ -21,7 +21,9 @@ export type IngestEvent =
   | { type: "skipped"; documentId: string };
 
 export interface IngestOptions extends ChunkOptions {
-  /** Re-ingest even if a document with the same content hash already exists. */
+  /** Collection the document belongs to (required — documents are scoped). */
+  collectionId: string;
+  /** Re-ingest even if the same content already exists in this collection. */
   force?: boolean;
   onProgress?: (event: IngestEvent) => void;
 }
@@ -36,21 +38,20 @@ export interface IngestResult {
 }
 
 /**
- * Full ingestion: parse → chunk → embed → store.
+ * Core ingestion of an already-parsed document: embed → store.
  *
  * The document row is created up front with status "processing", and only
  * flipped to "ready" inside the same transaction that writes the chunks — so a
  * partially-ingested document is never visible as ready. Failures flip it to
- * "failed" with the error recorded.
+ * "failed" with the error recorded. Dedupe is scoped to the collection.
  */
-export async function ingestFile(
-  filePath: string,
-  options: IngestOptions = {},
+export async function storePrepared(
+  prepared: PreparedDocument,
+  options: IngestOptions,
 ): Promise<IngestResult> {
-  const { force, onProgress, ...chunkOptions } = options;
+  const { collectionId, force, onProgress } = options;
   const ai = getAIProvider();
 
-  const prepared = await readAndPrepare(filePath, chunkOptions);
   onProgress?.({
     type: "prepared",
     chars: prepared.text.length,
@@ -58,9 +59,13 @@ export async function ingestFile(
     pageCount: prepared.pageCount,
   });
 
-  // Dedupe by content hash so re-running the CLI doesn't pile up duplicates.
+  // Dedupe by content hash within the collection (the same file may live in
+  // multiple collections).
   const existing = await db.query.documents.findFirst({
-    where: eq(documents.contentHash, prepared.contentHash),
+    where: and(
+      eq(documents.collectionId, collectionId),
+      eq(documents.contentHash, prepared.contentHash),
+    ),
   });
   if (existing && !force) {
     onProgress?.({ type: "skipped", documentId: existing.id });
@@ -73,13 +78,13 @@ export async function ingestFile(
     };
   }
   if (existing && force) {
-    // Cascade deletes the old chunks.
-    await db.delete(documents).where(eq(documents.id, existing.id));
+    await db.delete(documents).where(eq(documents.id, existing.id)); // cascades chunks
   }
 
   const [doc] = await db
     .insert(documents)
     .values({
+      collectionId,
       title: prepared.filename,
       filename: prepared.filename,
       mimeType: prepared.mimeType,
@@ -142,4 +147,23 @@ export async function ingestFile(
       .where(eq(documents.id, doc.id));
     throw error;
   }
+}
+
+/** Ingest a file from disk (CLI / seeding). */
+export async function ingestFile(
+  filePath: string,
+  options: IngestOptions,
+): Promise<IngestResult> {
+  const prepared = await readAndPrepare(filePath, options);
+  return storePrepared(prepared, options);
+}
+
+/** Ingest an uploaded file already in memory (browser upload). */
+export async function ingestUpload(
+  buffer: Buffer,
+  filename: string,
+  options: IngestOptions,
+): Promise<IngestResult> {
+  const prepared = await prepareDocument(buffer, filename, options);
+  return storePrepared(prepared, options);
 }

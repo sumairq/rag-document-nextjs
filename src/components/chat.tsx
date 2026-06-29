@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { ChatStreamEvent, CitationPayload } from "@/lib/chat/protocol";
+import { SourcePanel } from "@/components/source-panel";
+import { useCollections } from "@/components/collection-provider";
 
 interface Message {
   id: string;
@@ -18,9 +20,14 @@ const newId = () =>
   globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
 
 export function Chat() {
+  const { selectedId, selected } = useCollections();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [openSource, setOpenSource] = useState<{
+    chunkId: string;
+    quote: string;
+  } | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
 
   // Keep the latest message in view as tokens stream in.
@@ -65,7 +72,7 @@ export function Chat() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, collectionId: selectedId ?? undefined }),
       });
 
       // Non-streaming error responses (validation, engine failure) are JSON.
@@ -127,9 +134,13 @@ export function Chat() {
   return (
     <div className="flex flex-1 flex-col">
       <header className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-        <h1 className="text-sm font-semibold tracking-tight">RAG Chat</h1>
+        <h1 className="text-sm font-semibold tracking-tight">
+          {selected ? selected.name : "RAG Chat"}
+        </h1>
         <p className="text-xs text-zinc-500">
-          Answers come only from your ingested documents, with citations.
+          {selected
+            ? `Answering only from “${selected.name}” (${selected.documentCount} document${selected.documentCount === 1 ? "" : "s"}), with citations.`
+            : "Answers come only from your ingested documents, with citations."}
         </p>
       </header>
 
@@ -150,10 +161,17 @@ export function Chat() {
                 m.role === "assistant" &&
                 m.id === messages[messages.length - 1]?.id
               }
+              onOpenSource={setOpenSource}
             />
           ))}
         </div>
       </div>
+
+      <SourcePanel
+        chunkId={openSource?.chunkId ?? null}
+        quote={openSource?.quote ?? ""}
+        onClose={() => setOpenSource(null)}
+      />
 
       <div className="border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
         <div className="mx-auto flex max-w-2xl items-end gap-2">
@@ -182,9 +200,11 @@ export function Chat() {
 function MessageBubble({
   message,
   streaming,
+  onOpenSource,
 }: {
   message: Message;
   streaming: boolean;
+  onOpenSource: (source: { chunkId: string; quote: string }) => void;
 }) {
   const isUser = message.role === "user";
 
@@ -214,9 +234,10 @@ function MessageBubble({
           <div className="mt-2 flex flex-col gap-1.5">
             <p className="text-xs font-medium text-zinc-500">Citations</p>
             {message.citations.map((c) => (
-              <div
+              <button
                 key={c.chunkId}
-                className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs dark:border-zinc-800 dark:bg-zinc-900"
+                onClick={() => onOpenSource({ chunkId: c.chunkId, quote: c.quote })}
+                className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-left text-xs transition-colors hover:border-zinc-400 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
               >
                 <div className="font-medium text-zinc-700 dark:text-zinc-300">
                   [{c.marker}] {c.documentFilename}
@@ -228,7 +249,10 @@ function MessageBubble({
                   </span>
                 </div>
                 <p className="mt-1 text-zinc-500">{c.snippet}</p>
-              </div>
+                <span className="mt-1 inline-block text-zinc-400 underline">
+                  View source →
+                </span>
+              </button>
             ))}
           </div>
         )}

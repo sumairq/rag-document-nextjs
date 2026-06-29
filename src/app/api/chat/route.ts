@@ -55,12 +55,17 @@ export async function POST(req: Request): Promise<Response> {
     return jsonError("A non-empty question is required.", 400);
   }
 
+  const collectionId =
+    typeof (body as { collectionId?: unknown })?.collectionId === "string"
+      ? (body as { collectionId: string }).collectionId
+      : undefined;
+
   // --- Run the engine as-is (retrieval + grounded generation) ---
   // Done before streaming so engine errors become a clean HTTP error status
   // rather than a half-streamed response.
   let result;
   try {
-    result = await answerQuestion(question);
+    result = await answerQuestion(question, { collectionId });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Generation failed.";
     return jsonError(message, 500);
@@ -75,7 +80,10 @@ export async function POST(req: Request): Promise<Response> {
     chunkIndex: c.chunkIndex,
     page: c.page,
     similarity: c.similarity,
-    snippet: snippet(result.retrieved[c.marker - 1]?.content ?? ""),
+    // Prefer the model's quote as the preview (the relevant passage); fall back
+    // to the chunk's opening text if no quote was returned.
+    snippet: snippet(c.quote || result.retrieved[c.marker - 1]?.content || ""),
+    quote: c.quote,
   }));
 
   // --- Stream the answer text token-by-token, then the citations ---

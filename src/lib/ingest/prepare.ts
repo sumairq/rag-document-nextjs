@@ -22,19 +22,22 @@ export interface PreparedDocument {
   chunks: TextChunk[];
 }
 
-/** Reads a file, parses it to text, and chunks it. No embedding, no DB. */
-export async function readAndPrepare(
-  filePath: string,
+/**
+ * Parses + chunks a file already in memory. Used by browser uploads (which give
+ * us bytes, not a path) and by `readAndPrepare`. No embedding, no DB.
+ */
+export async function prepareDocument(
+  buffer: Buffer,
+  filename: string,
   options?: ChunkOptions,
 ): Promise<PreparedDocument> {
-  const resolved = resolveParser(filePath);
+  const resolved = resolveParser(filename);
   if (!resolved) {
     throw new Error(
-      `Unsupported file type for "${filePath}". Supported: ${supportedExtensions().join(", ")}`,
+      `Unsupported file type for "${filename}". Supported: ${supportedExtensions().join(", ")}`,
     );
   }
 
-  const buffer = await readFile(filePath);
   const contentHash = createHash("sha256").update(buffer).digest("hex");
 
   const { text, pages } = await resolved.parser.parse(buffer);
@@ -45,7 +48,7 @@ export async function readAndPrepare(
   const chunks = chunkText(text, pages, options);
 
   return {
-    filename: basename(filePath),
+    filename: basename(filename),
     mimeType: resolved.mimeType,
     byteSize: buffer.byteLength,
     contentHash,
@@ -53,4 +56,13 @@ export async function readAndPrepare(
     pageCount: pages?.length ?? null,
     chunks,
   };
+}
+
+/** Reads a file from disk, then prepares it. Used by the CLI. */
+export async function readAndPrepare(
+  filePath: string,
+  options?: ChunkOptions,
+): Promise<PreparedDocument> {
+  const buffer = await readFile(filePath);
+  return prepareDocument(buffer, filePath, options);
 }

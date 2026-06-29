@@ -15,6 +15,12 @@ export interface Citation {
   chunkIndex: number;
   page: number | null;
   similarity: number;
+  /**
+   * The verbatim span from this chunk that supports the answer — the "relevant
+   * passage". Copied by the model from the context; may be "" if the model gave
+   * none, in which case the UI falls back to highlighting the whole chunk.
+   */
+  quote: string;
 }
 
 export interface RagAnswer {
@@ -42,10 +48,12 @@ export type AnswerOptions = SearchOptions;
  *    model commit to "is this answerable from the context?" as structured data
  *    discourages the slide into a plausible-but-ungrounded answer, and gives us
  *    a clean signal to act on.
- * 4. Citations are required: the model must list the [n] markers it used. We
- *    then resolve those markers back to real chunk ids on our side — so a
- *    citation can only ever point at a chunk we actually retrieved. If the
- *    model is not answering, `sources` must be empty (enforced below too).
+ * 4. Citations are required: for each passage used, the model returns its [n]
+ *    marker AND a verbatim quote — the exact span that supports the answer. We
+ *    resolve the marker back to a real chunk id on our side (so a citation can
+ *    only point at a chunk we retrieved), and the quote lets the UI highlight
+ *    just the relevant passage, not the whole chunk. If unanswerable,
+ *    `citations` must be empty (enforced below too).
  * 5. temperature 0 — deterministic, minimal creative drift.
  * ============================================================================
  */
@@ -54,10 +62,10 @@ const SYSTEM_PROMPT = `You are a precise question-answering assistant. You answe
 Rules:
 1. Use ONLY information found in the CONTEXT. Never use outside or prior knowledge, and never guess.
 2. If the CONTEXT does not contain enough information to answer the question, set "answerable" to false and, in "answer", state plainly that the answer is not in the provided documents. Do not attempt a partial or speculative answer.
-3. When you do answer, every statement must be supported by the CONTEXT. In "sources", list the numeric [n] markers of the passages you actually used.
-4. If "answerable" is false, "sources" MUST be an empty array.
+3. When you do answer, every statement must be supported by the CONTEXT. For each passage you used, add an entry to "citations" with its numeric [n] marker as "source" and, in "quote", the SHORTEST verbatim span (copied EXACTLY, character-for-character, from that passage) that supports your answer. Do not paraphrase the quote; do not include the "[n]" marker or the "(source: …)" label in it.
+4. If "answerable" is false, "citations" MUST be an empty array.
 5. Respond with a SINGLE JSON object and nothing else, exactly in this shape:
-{"answer": string, "answerable": boolean, "sources": number[]}`;
+{"answer": string, "answerable": boolean, "citations": [{"source": number, "quote": string}]}`;
 
 const DEFAULT_TOP_K = 5;
 
@@ -65,7 +73,7 @@ const DEFAULT_TOP_K = 5;
 interface ModelResponse {
   answer?: unknown;
   answerable?: unknown;
-  sources?: unknown;
+  citations?: unknown;
 }
 
 /**
@@ -125,13 +133,12 @@ export async function answerQuestion(
       ? parsed.answer.trim()
       : "I couldn't produce a grounded answer from the documents.";
 
-  // Resolve cited markers → real chunks. Only keep valid, in-range markers,
-  // and only when the model claims the question is answerable.
+  // Resolve cited markers → real chunks, carrying the model's quote. Keep only
+  // valid in-range markers (de-duped), and only when the model is answering.
   const citations: Citation[] = answerable
-    ? toMarkerList(parsed?.sources)
-        .filter((n) => Number.isInteger(n) && n >= 1 && n <= retrieved.length)
-        .filter((n, i, arr) => arr.indexOf(n) === i) // de-dupe
-        .map((marker) => {
+    ? dedupeByMarker(parseCitations(parsed?.citations))
+        .filter((c) => c.marker >= 1 && c.marker <= retrieved.length)
+        .map(({ marker, quote }) => {
           const hit = retrieved[marker - 1];
           return {
             marker,
@@ -142,6 +149,7 @@ export async function answerQuestion(
             chunkIndex: hit.chunkIndex,
             page: hit.page,
             similarity: hit.similarity,
+            quote,
           };
         })
     : [];
@@ -173,7 +181,31 @@ function safeParse(text: string): ModelResponse | null {
   }
 }
 
-function toMarkerList(value: unknown): number[] {
+interface ParsedCitation {
+  marker: number;
+  quote: string;
+}
+
+/** Normalize the model's `citations` array into validated {marker, quote}. */
+function parseCitations(value: unknown): ParsedCitation[] {
   if (!Array.isArray(value)) return [];
-  return value.map((v) => Number(v));
+  return value
+    .map((entry): ParsedCitation | null => {
+      if (typeof entry !== "object" || entry === null) return null;
+      const source = Number((entry as { source?: unknown }).source);
+      const quote = (entry as { quote?: unknown }).quote;
+      if (!Number.isInteger(source)) return null;
+      return { marker: source, quote: typeof quote === "string" ? quote : "" };
+    })
+    .filter((c): c is ParsedCitation => c !== null);
+}
+
+/** Keep the first citation per marker (one card per chunk). */
+function dedupeByMarker(citations: ParsedCitation[]): ParsedCitation[] {
+  const seen = new Set<number>();
+  return citations.filter((c) => {
+    if (seen.has(c.marker)) return false;
+    seen.add(c.marker);
+    return true;
+  });
 }

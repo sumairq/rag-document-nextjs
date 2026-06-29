@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -28,6 +29,24 @@ export const documentStatus = pgEnum("document_status", [
 ]);
 
 /**
+ * A named corpus / collection of documents. Retrieval is scoped to one
+ * collection at a time, which is what makes documents "swappable".
+ */
+export const collections = pgTable("collections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // URL-friendly stable identifier (e.g. "product-manual").
+  slug: text("slug").notNull().unique(),
+  // Display name shown in the UI.
+  name: text("name").notNull(),
+  description: text("description"),
+  // True for the preloaded sample sets shipped with the app.
+  isSample: boolean("is_sample").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/**
  * One uploaded source document. Holds file-level metadata and ingestion state;
  * the actual searchable text lives in `chunks`.
  */
@@ -35,6 +54,11 @@ export const documents = pgTable(
   "documents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    // Which collection this document belongs to. Deleting a collection removes
+    // its documents (and, via the chunks cascade, their chunks).
+    collectionId: uuid("collection_id")
+      .notNull()
+      .references(() => collections.id, { onDelete: "cascade" }),
     // Human-readable name shown in the UI (defaults to the filename).
     title: text("title").notNull(),
     // Original upload filename.
@@ -61,8 +85,13 @@ export const documents = pgTable(
       .defaultNow(),
   },
   (table) => [
-    // Fast dedupe lookups by file hash.
-    index("documents_content_hash_idx").on(table.contentHash),
+    // Listing/scoping documents by collection.
+    index("documents_collection_id_idx").on(table.collectionId),
+    // Dedupe is per-collection: the same file may live in multiple collections.
+    index("documents_collection_content_hash_idx").on(
+      table.collectionId,
+      table.contentHash,
+    ),
     // Filtering document lists by ingestion state.
     index("documents_status_idx").on(table.status),
   ],
@@ -122,7 +151,15 @@ export const chunks = pgTable(
   ],
 );
 
-export const documentsRelations = relations(documents, ({ many }) => ({
+export const collectionsRelations = relations(collections, ({ many }) => ({
+  documents: many(documents),
+}));
+
+export const documentsRelations = relations(documents, ({ one, many }) => ({
+  collection: one(collections, {
+    fields: [documents.collectionId],
+    references: [collections.id],
+  }),
   chunks: many(chunks),
 }));
 
@@ -133,6 +170,8 @@ export const chunksRelations = relations(chunks, ({ one }) => ({
   }),
 }));
 
+export type Collection = typeof collections.$inferSelect;
+export type NewCollection = typeof collections.$inferInsert;
 export type Document = typeof documents.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;
 export type Chunk = typeof chunks.$inferSelect;

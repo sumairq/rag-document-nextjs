@@ -1,4 +1,4 @@
-import { cosineDistance, eq, sql } from "drizzle-orm";
+import { and, cosineDistance, eq, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { chunks, documents } from "@/db/schema";
@@ -7,6 +7,8 @@ import { getAIProvider } from "@/lib/ai";
 export interface SearchOptions {
   /** Number of chunks to return. */
   topK?: number;
+  /** Restrict the search to a single collection (corpus scoping). */
+  collectionId?: string;
   /** Restrict the search to a single document. */
   documentId?: string;
 }
@@ -55,6 +57,14 @@ export async function search(
   const distance = cosineDistance(chunks.embedding, queryEmbedding);
   const similarity = sql<number>`1 - (${distance})`;
 
+  // Scope filters: collection (via the joined documents table) and/or document.
+  const filters = [
+    options.collectionId
+      ? eq(documents.collectionId, options.collectionId)
+      : undefined,
+    options.documentId ? eq(chunks.documentId, options.documentId) : undefined,
+  ].filter((f) => f !== undefined);
+
   const rows = await db
     .select({
       chunkId: chunks.id,
@@ -70,7 +80,7 @@ export async function search(
     })
     .from(chunks)
     .innerJoin(documents, eq(chunks.documentId, documents.id))
-    .where(options.documentId ? eq(chunks.documentId, options.documentId) : undefined)
+    .where(filters.length > 0 ? and(...filters) : undefined)
     .orderBy(distance) // ascending distance = most similar first
     .limit(topK);
 

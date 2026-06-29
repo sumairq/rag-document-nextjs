@@ -27,6 +27,8 @@ type Args = {
   filePath?: string;
   dryRun: boolean;
   force: boolean;
+  /** Target collection slug (default "default"). */
+  collection: string;
   /** Override target chunk size in tokens (default 800). */
   chunkTokens?: number;
   /** Override chunk overlap in tokens (default 150). */
@@ -34,11 +36,12 @@ type Args = {
 };
 
 function parseArgs(argv: string[]): Args {
-  const result: Args = { dryRun: false, force: false };
+  const result: Args = { dryRun: false, force: false, collection: "default" };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--dry-run") result.dryRun = true;
     else if (arg === "--force") result.force = true;
+    else if (arg === "--collection") result.collection = argv[++i] || result.collection;
     else if (arg === "--chunk-tokens") result.chunkTokens = Number(argv[++i]) || undefined;
     else if (arg === "--overlap") result.overlapTokens = Number(argv[++i]) || undefined;
     else if (!arg.startsWith("-") && !result.filePath) result.filePath = arg;
@@ -91,8 +94,16 @@ async function main() {
   }
 
   // --- Full ingestion ---
+  const { ensureCollection } = await import("@/lib/collections");
+  const collection = await ensureCollection({
+    slug: args.collection,
+    name: args.collection === "default" ? "Default" : args.collection,
+  });
+  console.log(`  collection: ${collection.name} (${collection.slug})`);
+
   const { ingestFile } = await import("@/lib/ingest/pipeline");
   const result = await ingestFile(args.filePath, {
+    collectionId: collection.id,
     force: args.force,
     targetTokens: args.chunkTokens,
     overlapTokens: args.overlapTokens,

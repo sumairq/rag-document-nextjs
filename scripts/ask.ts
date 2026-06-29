@@ -51,6 +51,7 @@ async function main() {
         `  [${c.marker}] ${c.documentFilename} (${loc})  ` +
           `score ${c.similarity.toFixed(4)}  chunk_id ${c.chunkId}`,
       );
+      if (c.quote) console.log(`      ↳ "${c.quote}"`);
     }
   } else {
     console.log("Citations: (none — not answerable from the documents)");

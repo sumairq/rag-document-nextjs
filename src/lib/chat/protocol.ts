@@ -20,6 +20,8 @@ export interface CitationPayload {
   similarity: number;
   /** Short preview of the cited chunk's text. */
   snippet: string;
+  /** Verbatim span the model cited — the relevant passage to highlight. */
+  quote: string;
 }
 
 export type ChatStreamEvent =
@@ -29,3 +31,48 @@ export type ChatStreamEvent =
 
 /** Content-Type used by the streaming route. */
 export const NDJSON_CONTENT_TYPE = "application/x-ndjson; charset=utf-8";
+
+/** Collection as returned by GET /api/collections (client-facing shape). */
+export interface CollectionSummary {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  isSample: boolean;
+  documentCount: number;
+  createdAt: string;
+}
+
+/** Document as returned by GET /api/documents (client-facing shape). */
+export interface DocumentSummary {
+  id: string;
+  title: string;
+  filename: string;
+  mimeType: string;
+  byteSize: number;
+  status: string;
+  chunkCount: number;
+  error: string | null;
+  createdAt: string;
+}
+
+/**
+ * A resolved citation source: the cited chunk's text, framed by overlap-free
+ * context from its neighboring chunks. `before`/`highlight`/`after` concatenate
+ * into a continuous excerpt of the document, with `highlight` being the exact
+ * cited chunk.
+ */
+export interface SourceResolution {
+  chunkId: string;
+  documentId: string;
+  documentTitle: string;
+  documentFilename: string;
+  chunkIndex: number;
+  page: number | null;
+  /** Preceding context (from the previous chunk), overlap removed. */
+  before: string;
+  /** The cited chunk's full text — the passage to highlight. */
+  highlight: string;
+  /** Following context (from the next chunk), overlap removed. */
+  after: string;
+}

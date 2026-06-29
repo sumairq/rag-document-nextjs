@@ -160,10 +160,13 @@ Indexes:
 
 ### Embedding dimension
 
-`text-embedding-004` emits **768-dim** vectors, so the column is `vector(768)`
-and `EMBEDDING_DIMENSIONS` in `src/db/schema.ts` is the single source of truth.
-Changing models with a different dimension requires updating that constant **and**
-generating a new migration (the `vector(N)` size is fixed at the DB level).
+We use `gemini-embedding-001` with `outputDimensionality: 768`, so the column is
+`vector(768)` and `EMBEDDING_DIMENSIONS` in `src/db/schema.ts` is the single
+source of truth. (This model supports several output sizes via Matryoshka
+representation; we pin 768.) Because we search by **cosine** distance, the
+sub-3072 outputs needn't be pre-normalized. Changing to a model with a different
+dimension requires updating that constant **and** generating a new migration
+(the `vector(N)` size is fixed at the DB level).
 
 ---
 
@@ -177,7 +180,7 @@ Embeddings and LLM calls sit behind small interfaces in `src/lib/ai/types.ts`:
 - `AIProvider` — bundles both.
 
 `src/lib/ai/gemini.ts` implements these with the official `@google/genai` SDK
-(`text-embedding-004` for embeddings, `gemini-2.0-flash` for generation).
+(`gemini-embedding-001` for embeddings, `gemini-2.0-flash` for generation).
 `src/lib/ai/index.ts` exposes `getAIProvider()`, a factory that reads
 `AI_PROVIDER` from the environment.
 

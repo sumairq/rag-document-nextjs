@@ -51,6 +51,41 @@ docker compose exec db psql -U postgres -d ragdb \
 > `sudo usermod -aG docker $USER` and open a new shell, or prefix the `docker`
 > commands above with `sudo`.
 
+## Ingesting documents
+
+Turn a local file (PDF, DOCX, TXT/MD) into stored, embedded chunks:
+
+```bash
+npm run ingest ./sample.txt              # parse → chunk → embed → store
+npm run ingest -- ./sample.pdf --dry-run # parse + chunk only (no API key / DB needed)
+npm run ingest -- ./sample.txt --force   # re-ingest a duplicate (same content hash)
+```
+
+> Flags must come after `--` so npm doesn't intercept them. The file path
+> doesn't. A full run requires `GEMINI_API_KEY` set and the database running;
+> `--dry-run` requires neither.
+
+### Inspect what landed
+
+```bash
+# Documents
+docker compose exec db psql -U postgres -d ragdb -c \
+  "SELECT id, filename, status, chunk_count, byte_size FROM documents ORDER BY created_at DESC;"
+
+# Chunks for the most recent document (text previewed)
+docker compose exec db psql -U postgres -d ragdb -c \
+  "SELECT chunk_index, page, char_start, char_end, token_count, left(content, 60) AS preview
+   FROM chunks
+   WHERE document_id = (SELECT id FROM documents ORDER BY created_at DESC LIMIT 1)
+   ORDER BY chunk_index;"
+
+# Embedding sanity check: every vector should report 768 dims, and none null
+docker compose exec db psql -U postgres -d ragdb -c \
+  "SELECT DISTINCT vector_dims(embedding) AS dims, count(*) FROM chunks GROUP BY 1;"
+docker compose exec db psql -U postgres -d ragdb -c \
+  "SELECT count(*) AS null_embeddings FROM chunks WHERE embedding IS NULL;"
+```
+
 ## Scripts
 
 | Script               | Description                                  |
@@ -59,6 +94,7 @@ docker compose exec db psql -U postgres -d ragdb \
 | `npm run build`      | Production build                             |
 | `npm run typecheck`  | `tsc --noEmit`                               |
 | `npm run lint`       | ESLint                                       |
+| `npm run ingest`     | Ingest a local file (see above)              |
 | `npm run db:up`      | Start Postgres + pgvector (Docker)           |
 | `npm run db:down`    | Stop the database container                  |
 | `npm run db:generate`| Generate a migration from the Drizzle schema |

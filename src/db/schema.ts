@@ -13,7 +13,7 @@ import {
 import { relations } from "drizzle-orm";
 
 /**
- * Embedding dimension. Gemini `text-embedding-004` returns 768-dim vectors.
+ * Embedding dimension. We use Gemini `gemini-embedding-001` pinned to 768 dims.
  * If you swap to a model with a different dimension, change this AND generate
  * a new migration (the column type `vector(N)` is fixed at the DB level).
  */

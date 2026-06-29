@@ -17,7 +17,7 @@ export function getAIProvider(): AIProvider {
     case "gemini":
       return createGeminiProvider({
         apiKey: process.env.GEMINI_API_KEY ?? "",
-        embeddingModel: process.env.EMBEDDING_MODEL ?? "text-embedding-004",
+        embeddingModel: process.env.EMBEDDING_MODEL ?? "gemini-embedding-001",
         generationModel: process.env.GENERATION_MODEL ?? "gemini-2.0-flash",
       });
     default:

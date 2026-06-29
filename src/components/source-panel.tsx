@@ -46,6 +46,20 @@ type Resolved =
 
 export function SourcePanel({ chunkId, quote, onClose }: SourcePanelProps) {
   const [resolved, setResolved] = useState<Resolved | null>(null);
+  // Drives the slide/fade-in transition. We flip it on (via rAF) once the panel
+  // has mounted so the browser animates from the off-screen start state, and
+  // reset it when closed so the next open animates again. setState only happens
+  // inside async callbacks, never synchronously in the effect body.
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (chunkId) {
+      const raf = requestAnimationFrame(() => setVisible(true));
+      return () => cancelAnimationFrame(raf);
+    }
+    const t = setTimeout(() => setVisible(false), 0);
+    return () => clearTimeout(t);
+  }, [chunkId]);
 
   // Fetch the source whenever a citation is opened. We only setState inside the
   // async callbacks (never synchronously in the effect body); the "loading"
@@ -100,34 +114,50 @@ export function SourcePanel({ chunkId, quote, onClose }: SourcePanelProps) {
     <div className="fixed inset-0 z-50 flex justify-end">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/30"
+        className={`absolute inset-0 bg-black/30 transition-opacity duration-200 ${
+          visible ? "opacity-100" : "opacity-0"
+        }`}
         onClick={onClose}
         aria-hidden
       />
 
       {/* Panel */}
-      <aside className="relative flex h-full w-full max-w-md flex-col border-l border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+      <aside
+        className={`relative flex h-full w-full max-w-md flex-col border-l border-zinc-200 bg-white shadow-2xl transition-transform duration-200 ease-out dark:border-zinc-800 dark:bg-zinc-950 ${
+          visible ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
         <header className="flex items-start justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-          <div>
-            <h2 className="text-sm font-semibold">Source</h2>
+          <div className="min-w-0">
+            <h2 className="text-[13px] font-semibold tracking-tight">Source</h2>
             {current?.status === "loaded" && (
-              <p className="text-xs text-zinc-500">
-                {current.source.documentFilename} · chunk{" "}
-                {current.source.chunkIndex}
+              <p className="mt-0.5 truncate text-xs text-zinc-500">
+                {current.source.documentFilename}
                 {current.source.page != null ? ` · p.${current.source.page}` : ""}
               </p>
             )}
           </div>
           <button
             onClick={onClose}
-            className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
+            className="-mr-1 rounded-md p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             aria-label="Close source panel"
           >
-            ✕
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              aria-hidden
+            >
+              <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" />
+            </svg>
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4 text-sm leading-relaxed">
+        <div className="flex-1 overflow-y-auto px-4 py-4 text-[15px] leading-7">
           {!current && <p className="text-zinc-400">Loading source…</p>}
 
           {current?.status === "error" && (
@@ -139,9 +169,8 @@ export function SourcePanel({ chunkId, quote, onClose }: SourcePanelProps) {
           )}
         </div>
 
-        <footer className="border-t border-zinc-200 px-4 py-2 text-xs text-zinc-400 dark:border-zinc-800">
-          Amber = the exact passage cited. Darker text = the full chunk; grey =
-          surrounding context.
+        <footer className="border-t border-zinc-200 px-4 py-2.5 text-xs text-zinc-400 dark:border-zinc-800">
+          The highlighted passage is the exact text cited.
         </footer>
       </aside>
     </div>

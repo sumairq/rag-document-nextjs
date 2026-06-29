@@ -180,7 +180,7 @@ Embeddings and LLM calls sit behind small interfaces in `src/lib/ai/types.ts`:
 - `AIProvider` — bundles both.
 
 `src/lib/ai/gemini.ts` implements these with the official `@google/genai` SDK
-(`gemini-embedding-001` for embeddings, `gemini-2.0-flash` for generation).
+(`gemini-embedding-001` for embeddings, `gemini-2.5-flash` for generation).
 `src/lib/ai/index.ts` exposes `getAIProvider()`, a factory that reads
 `AI_PROVIDER` from the environment.
 

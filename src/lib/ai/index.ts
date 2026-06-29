@@ -18,7 +18,7 @@ export function getAIProvider(): AIProvider {
       return createGeminiProvider({
         apiKey: process.env.GEMINI_API_KEY ?? "",
         embeddingModel: process.env.EMBEDDING_MODEL ?? "gemini-embedding-001",
-        generationModel: process.env.GENERATION_MODEL ?? "gemini-2.0-flash",
+        generationModel: process.env.GENERATION_MODEL ?? "gemini-2.5-flash",
       });
     default:
       throw new Error(`Unknown AI_PROVIDER: "${provider}".`);

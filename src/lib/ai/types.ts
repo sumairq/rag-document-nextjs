@@ -36,6 +36,12 @@ export interface GenerateOptions {
   temperature?: number;
   /** Hard cap on generated tokens. */
   maxOutputTokens?: number;
+  /**
+   * Ask the model to return a single JSON object (no prose/markdown). Maps to
+   * Gemini's `responseMimeType` and OpenAI's JSON response format. The caller
+   * is still responsible for parsing/validating the JSON.
+   */
+  json?: boolean;
 }
 
 export interface LLMProvider {

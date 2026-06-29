@@ -74,6 +74,7 @@ class GeminiLLMProvider implements LLMProvider {
         systemInstruction: options?.system,
         temperature: options?.temperature,
         maxOutputTokens: options?.maxOutputTokens,
+        responseMimeType: options?.json ? "application/json" : undefined,
       },
     });
 

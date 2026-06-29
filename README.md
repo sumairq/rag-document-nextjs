@@ -78,6 +78,17 @@ npm run search -- "pgvector index" --doc <document-id>
 Prints the top-k chunks ranked by cosine similarity, each with its score and
 source document.
 
+## Asking (retrieval + generation)
+
+Get a grounded answer with structured citations. Answers come **only** from the
+retrieved chunks; if the documents don't cover the question, it says so instead
+of guessing:
+
+```bash
+npm run ask "what are the two main phases of a RAG system?"
+npm run ask -- "what is X?" --k 8 --doc <document-id>
+```
+
 ### Inspect what landed
 
 ```bash
@@ -109,6 +120,7 @@ docker compose exec db psql -U postgres -d ragdb -c \
 | `npm run lint`       | ESLint                                       |
 | `npm run ingest`     | Ingest a local file (see above)              |
 | `npm run search`     | Vector similarity search over chunks         |
+| `npm run ask`        | Grounded, cited answer (retrieval + LLM)     |
 | `npm run db:up`      | Start Postgres + pgvector (Docker)           |
 | `npm run db:down`    | Stop the database container                  |
 | `npm run db:generate`| Generate a migration from the Drizzle schema |

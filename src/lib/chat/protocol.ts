@@ -26,8 +26,41 @@ export interface CitationPayload {
 
 export type ChatStreamEvent =
   | { type: "token"; value: string }
-  | { type: "done"; answerable: boolean; citations: CitationPayload[] }
+  | {
+      type: "done";
+      answerable: boolean;
+      citations: CitationPayload[];
+      /** The thread this answer was saved to (created on the first turn). */
+      conversationId: string;
+      /** The thread's title (auto-generated on the first turn). */
+      title: string;
+    }
   | { type: "error"; message: string };
+
+/** A persisted conversation, shaped for the client (dates as ISO strings). */
+export interface ConversationSummary {
+  id: string;
+  collectionId: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A persisted message, shaped for the client. Citations re-hydrate assistant
+ * answers with their sources on reload; null for user turns. */
+export interface ChatMessagePayload {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  citations: CitationPayload[] | null;
+  createdAt: string;
+}
+
+/** A conversation plus its messages, as returned to the client on restore. */
+export interface ConversationDetail {
+  conversation: ConversationSummary;
+  messages: ChatMessagePayload[];
+}
 
 /** Content-Type used by the streaming route. */
 export const NDJSON_CONTENT_TYPE = "application/x-ndjson; charset=utf-8";

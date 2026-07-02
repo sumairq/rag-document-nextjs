@@ -5,7 +5,12 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatStreamEvent, CitationPayload } from "@/lib/chat/protocol";
 import { SourcePanel } from "@/components/source-panel";
 import { useCollections } from "@/components/collection-provider";
+import { getConversationAction } from "@/app/actions/conversations";
 import { startersFor } from "@/lib/starter-prompts";
+
+// Which thread to restore on reload. A single active-thread slot for now; the
+// sidebar (next step) will replace this with per-collection thread selection.
+const ACTIVE_CONVERSATION_KEY = "activeConversationId";
 
 interface Message {
   id: string;
@@ -25,11 +30,64 @@ export function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  // The persisted thread this chat is continuing (null = a fresh thread that
+  // will be created on the next send).
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [openSource, setOpenSource] = useState<{
     chunkId: string;
     quote: string;
   } | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
+
+  // Restore the active thread once a collection is known (on load, and whenever
+  // the selected corpus changes). We only restore a thread that belongs to the
+  // current collection — a conversation is scoped to one corpus — otherwise we
+  // start fresh. A stale/deleted id also resets cleanly.
+  useEffect(() => {
+    if (!selectedId) return;
+    let cancelled = false;
+
+    const storedId =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem(ACTIVE_CONVERSATION_KEY)
+        : null;
+
+    // Route every setState through the async callback (never the effect body)
+    // so we don't trigger cascading renders — same pattern as the collection
+    // provider. A missing id resolves to null and falls through to "start fresh".
+    const restore = storedId
+      ? getConversationAction(storedId)
+      : Promise.resolve(null);
+
+    restore
+      .then((detail) => {
+        if (cancelled) return;
+        if (detail && detail.conversation.collectionId === selectedId) {
+          setConversationId(detail.conversation.id);
+          setMessages(
+            detail.messages.map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              citations: m.citations ?? undefined,
+            })),
+          );
+        } else {
+          // No stored thread, or it belongs to another corpus / is gone.
+          setConversationId(null);
+          setMessages([]);
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setConversationId(null);
+        setMessages([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
 
   // Keep the latest message in view as tokens stream in.
   useEffect(() => {
@@ -73,7 +131,12 @@ export function Chat() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, collectionId: selectedId ?? undefined }),
+        body: JSON.stringify({
+          question,
+          collectionId: selectedId ?? undefined,
+          // Continue the current thread, or start a new one when null.
+          conversationId: conversationId ?? undefined,
+        }),
       });
 
       // Non-streaming error responses (validation, engine failure) are JSON.
@@ -106,6 +169,15 @@ export function Chat() {
               answerable: event.answerable,
               citations: event.citations,
             });
+            // Remember the thread (created server-side on the first turn) so
+            // follow-ups continue it and a reload restores it.
+            setConversationId(event.conversationId);
+            if (typeof window !== "undefined") {
+              window.localStorage.setItem(
+                ACTIVE_CONVERSATION_KEY,
+                event.conversationId,
+              );
+            }
           } else if (event.type === "error") {
             throw new Error(event.message);
           }

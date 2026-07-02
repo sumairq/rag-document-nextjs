@@ -15,6 +15,13 @@
       "when": 1782737254726,
       "tag": "0001_familiar_grim_reaper",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783026571931,
+      "tag": "0002_chubby_doomsday",
+      "breakpoints": true
     }
   ]
 }

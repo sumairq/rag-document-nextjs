@@ -13,6 +13,8 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
+import type { CitationPayload } from "../lib/chat/protocol";
+
 /**
  * Embedding dimension. We use Gemini `gemini-embedding-001` pinned to 768 dims.
  * If you swap to a model with a different dimension, change this AND generate
@@ -27,6 +29,9 @@ export const documentStatus = pgEnum("document_status", [
   "ready", // fully embedded and queryable
   "failed", // ingestion errored (see `error`)
 ]);
+
+/** Who authored a chat message. Only these two roles are persisted. */
+export const messageRole = pgEnum("message_role", ["user", "assistant"]);
 
 /**
  * A named corpus / collection of documents. Retrieval is scoped to one
@@ -151,8 +156,99 @@ export const chunks = pgTable(
   ],
 );
 
+/**
+ * A persisted chat thread. Scoped to exactly one collection (corpus): every
+ * message in the thread retrieves against — and is answered from — that same
+ * collection, which is what keeps retrieval scoping intact across turns.
+ */
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The corpus this thread is bound to. Deleting the collection deletes its
+    // conversations (and, via the messages cascade, their messages).
+    collectionId: uuid("collection_id")
+      .notNull()
+      .references(() => collections.id, { onDelete: "cascade" }),
+    // Short human-readable label, auto-generated from the first user message.
+    title: text("title").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    // Bumped on every appended message so the sidebar can sort "most recent
+    // activity first" without scanning the messages table.
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // List a collection's conversations, newest-active first. A B-tree on
+    // (collection_id, updated_at) also serves the DESC order via a reverse scan.
+    index("conversations_collection_id_updated_at_idx").on(
+      table.collectionId,
+      table.updatedAt,
+    ),
+  ],
+);
+
+/**
+ * One turn in a conversation. User turns store just the question text; assistant
+ * turns additionally store the structured `citations` used to produce the
+ * answer, so a saved answer re-renders with its exact sources on reload without
+ * re-running retrieval or the model.
+ */
+export const messages = pgTable(
+  "messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Parent thread. Deleting a conversation removes its messages.
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    role: messageRole("role").notNull(),
+    // The message text: the user's question, or the assistant's answer.
+    content: text("content").notNull(),
+    // Assistant-only: the resolved citations (chunk ids + display metadata +
+    // the model's verbatim quote) that back this answer. Denormalized as JSONB
+    // so reload re-hydrates the sources exactly as first streamed; NULL for user
+    // messages and for unanswerable answers (which have no sources).
+    citations: jsonb("citations").$type<CitationPayload[]>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Load a thread's messages in authored order. Sequential inserts (user then
+    // assistant) give strictly increasing timestamps, so created_at is a stable
+    // sort key.
+    index("messages_conversation_id_created_at_idx").on(
+      table.conversationId,
+      table.createdAt,
+    ),
+  ],
+);
+
 export const collectionsRelations = relations(collections, ({ many }) => ({
   documents: many(documents),
+  conversations: many(conversations),
+}));
+
+export const conversationsRelations = relations(
+  conversations,
+  ({ one, many }) => ({
+    collection: one(collections, {
+      fields: [conversations.collectionId],
+      references: [collections.id],
+    }),
+    messages: many(messages),
+  }),
+);
+
+export const messagesRelations = relations(messages, ({ one }) => ({
+  conversation: one(conversations, {
+    fields: [messages.conversationId],
+    references: [conversations.id],
+  }),
 }));
 
 export const documentsRelations = relations(documents, ({ one, many }) => ({
@@ -176,3 +272,7 @@ export type Document = typeof documents.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;
 export type Chunk = typeof chunks.$inferSelect;
 export type NewChunk = typeof chunks.$inferInsert;
+export type Conversation = typeof conversations.$inferSelect;
+export type NewConversation = typeof conversations.$inferInsert;
+export type Message = typeof messages.$inferSelect;
+export type NewMessage = typeof messages.$inferInsert;

@@ -1,5 +1,6 @@
 import { getAIProvider } from "@/lib/ai";
 import { search, type SearchHit, type SearchOptions } from "@/lib/retrieval/search";
+import { condenseQuestion, type ConversationTurn } from "@/lib/generation/rewrite";
 
 /**
  * A resolved citation: a context passage the model said it used, paired with
@@ -33,9 +34,21 @@ export interface RagAnswer {
   citations: Citation[];
   /** Everything retrieved, for transparency/debugging (not just what was cited). */
   retrieved: SearchHit[];
+  /** The standalone query actually sent to retrieval (post query-rewrite). Equal
+   * to `question` on the first turn or when no rewrite happened. */
+  retrievalQuery: string;
 }
 
-export type AnswerOptions = SearchOptions;
+export interface AnswerOptions extends SearchOptions {
+  /**
+   * Recent prior turns (oldest-first), for multi-turn support. Used two ways:
+   *  1. To rewrite a follow-up into a standalone retrieval query (see rewrite.ts).
+   *  2. As conversation context in the generation prompt, so the model can
+   *     resolve references — while still answering ONLY from retrieved CONTEXT.
+   * Omit/empty for a stateless, single-shot question (today's behavior).
+   */
+  history?: ConversationTurn[];
+}
 
 /**
  * ============================================================================
@@ -57,10 +70,12 @@ export type AnswerOptions = SearchOptions;
  * 5. temperature 0 — deterministic, minimal creative drift.
  * ============================================================================
  */
-const SYSTEM_PROMPT = `You are a precise question-answering assistant. You answer questions using ONLY the CONTEXT passages provided by the user, which were retrieved from their documents.
+const SYSTEM_PROMPT = `You are a precise question-answering assistant in a multi-turn chat. You answer questions using ONLY the CONTEXT passages provided by the user, which were retrieved from their documents.
+
+A CONVERSATION SO FAR section may precede the CONTEXT. Use it ONLY to understand what the current QUESTION refers to (pronouns, follow-ups like "what about that?"). It is NOT a source: never treat earlier messages as facts to answer from, and never cite them. Every fact in your answer must come from the CONTEXT passages below.
 
 Rules:
-1. Use ONLY information found in the CONTEXT. Never use outside or prior knowledge, and never guess.
+1. Use ONLY information found in the CONTEXT. Never use outside or prior knowledge, the conversation history, and never guess.
 2. If the CONTEXT does not contain enough information to answer the question, set "answerable" to false and, in "answer", state plainly that the answer is not in the provided documents. Do not attempt a partial or speculative answer.
 3. When you do answer, every statement must be supported by the CONTEXT. For each passage you used, add an entry to "citations" with its numeric [n] marker as "source" and, in "quote", the SHORTEST verbatim span (copied EXACTLY, character-for-character, from that passage) that supports your answer. Do not paraphrase the quote; do not include the "[n]" marker or the "(source: …)" label in it.
 4. If "answerable" is false, "citations" MUST be an empty array.
@@ -89,7 +104,13 @@ export async function answerQuestion(
   }
 
   const topK = options.topK ?? DEFAULT_TOP_K;
-  const retrieved = await search(trimmed, { ...options, topK });
+  const history = options.history ?? [];
+  const ai = getAIProvider();
+
+  // Follow-up → standalone query for retrieval only (see rewrite.ts). The visible
+  // question and generation prompt keep the user's original wording.
+  const retrievalQuery = await condenseQuestion(trimmed, history, ai);
+  const retrieved = await search(retrievalQuery, { ...options, topK });
 
   // No context at all → don't even call the model; we can't ground an answer.
   if (retrieved.length === 0) {
@@ -100,10 +121,9 @@ export async function answerQuestion(
       answerable: false,
       citations: [],
       retrieved,
+      retrievalQuery,
     };
   }
-
-  const ai = getAIProvider();
 
   // Build the numbered context block. [n] markers are 1-based and map to
   // `retrieved[n - 1]` when we resolve citations afterward.
@@ -116,7 +136,20 @@ export async function answerQuestion(
     })
     .join("\n\n");
 
-  const userPrompt = `CONTEXT:\n${contextBlock}\n\nQUESTION: ${trimmed}`;
+  // Prepend recent turns so the model can resolve references. Framed as context
+  // only — the system prompt forbids using it as a source or citing it.
+  const historyBlock =
+    history.length > 0
+      ? "CONVERSATION SO FAR:\n" +
+        history
+          .map(
+            (t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.content}`,
+          )
+          .join("\n") +
+        "\n\n"
+      : "";
+
+  const userPrompt = `${historyBlock}CONTEXT:\n${contextBlock}\n\nQUESTION: ${trimmed}`;
 
   const raw = await ai.llm.generate(userPrompt, {
     system: SYSTEM_PROMPT,
@@ -160,6 +193,7 @@ export async function answerQuestion(
     answerable,
     citations,
     retrieved,
+    retrievalQuery,
   };
 }
 

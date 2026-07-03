@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useCollections } from "@/components/collection-provider";
 import { DocumentStack } from "@/components/document-stack";
+import { HowItWorks } from "@/components/how-it-works";
 import { Button } from "@/components/ui/button";
 import { PlusIcon, TrashIcon } from "@/components/ui/icons";
 import type { DocumentSummary } from "@/lib/chat/protocol";
@@ -221,6 +222,7 @@ export function CorpusManager() {
               <p className="text-sm text-muted">
                 No documents yet. Upload one above to start asking questions.
               </p>
+              <HowItWorks />
             </div>
           )}
           {current?.status === "loaded" && current.items.length > 0 && (

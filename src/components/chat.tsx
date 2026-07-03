@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import type { ChatStreamEvent, CitationPayload } from "@/lib/chat/protocol";
@@ -9,9 +9,13 @@ import { Composer } from "@/components/composer";
 import { useCollections } from "@/components/collection-provider";
 import { useConversations } from "@/components/conversations-provider";
 import { getConversationAction } from "@/app/actions/conversations";
+import Link from "next/link";
+
 import { startersFor } from "@/lib/starter-prompts";
 import { DocumentStack } from "@/components/document-stack";
-import { ChevronDownIcon, SparkIcon } from "@/components/ui/icons";
+import { HowItWorks } from "@/components/how-it-works";
+import { buttonClassName } from "@/components/ui/button";
+import { PlusIcon, SparkIcon } from "@/components/ui/icons";
 
 interface Message {
   id: string;
@@ -270,11 +274,21 @@ function Welcome({
           <p className="mx-auto max-w-md text-sm leading-relaxed text-muted">
             {corpusName
               ? "Grounded answers only from the documents in this corpus and cites every source it uses. When the answer isn’t in them, it tells you plainly instead of guessing."
-              : "Select a corpus from the sidebar to start asking questions."}
+              : "You don’t have a corpus yet. Add your documents to start asking questions, with citations back to the source."}
           </p>
         </div>
         {corpusName && <HowItWorks />}
       </div>
+
+      {!corpusName && (
+        <Link
+          href="/corpus"
+          className={buttonClassName({ variant: "primary", size: "md" })}
+        >
+          <PlusIcon />
+          Add documents
+        </Link>
+      )}
 
       {starters.length > 0 && (
         <div className="flex w-full max-w-md flex-col gap-2 pt-2">
@@ -294,34 +308,6 @@ function Welcome({
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-/** Three-step orientation for first-time visitors. Kept deliberately the most
- * lightweight element on the empty state — muted, one line — so the starter
- * chips stay the visual priority. */
-const HOW_IT_WORKS = [
-  "Point it at your documents",
-  "Ask a question",
-  "Get answers with sources you can open",
-];
-
-function HowItWorks() {
-  return (
-    <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-[13px] font-medium text-muted">
-      {HOW_IT_WORKS.map((step, i) => (
-        <Fragment key={step}>
-          {i > 0 && (
-            <ChevronDownIcon
-              width={13}
-              height={13}
-              className="shrink-0 -rotate-90 text-faint"
-            />
-          )}
-          <span>{step}</span>
-        </Fragment>
-      ))}
     </div>
   );
 }

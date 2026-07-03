@@ -35,6 +35,22 @@ const SIZES: Record<ButtonSize, string> = {
   icon: "h-8 w-8 p-0 text-sm",
 };
 
+/**
+ * The shared class string for the button system. Use this to style a non-button
+ * element (e.g. a Next `<Link>`) so links and buttons stay visually identical.
+ */
+export function buttonClassName({
+  variant = "secondary",
+  size = "md",
+  className,
+}: {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  className?: string;
+} = {}): string {
+  return cn(BASE, VARIANTS[variant], SIZES[size], className);
+}
+
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
@@ -50,7 +66,7 @@ export function Button({
   return (
     <button
       type={type}
-      className={cn(BASE, VARIANTS[variant], SIZES[size], className)}
+      className={buttonClassName({ variant, size, className })}
       {...props}
     />
   );

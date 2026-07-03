@@ -1,93 +1,92 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import type { ChatStreamEvent, CitationPayload } from "@/lib/chat/protocol";
 import { SourcePanel } from "@/components/source-panel";
+import { Composer } from "@/components/composer";
 import { useCollections } from "@/components/collection-provider";
+import { useConversations } from "@/components/conversations-provider";
 import { getConversationAction } from "@/app/actions/conversations";
 import { startersFor } from "@/lib/starter-prompts";
-
-// Which thread to restore on reload. A single active-thread slot for now; the
-// sidebar (next step) will replace this with per-collection thread selection.
-const ACTIVE_CONVERSATION_KEY = "activeConversationId";
+import { DocumentStack } from "@/components/document-stack";
+import { ChevronDownIcon, SparkIcon } from "@/components/ui/icons";
 
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   citations?: CitationPayload[];
+  /** False when the answer wasn't in the documents (honest refusal). */
   answerable?: boolean;
   /** Set on the assistant message when the request failed. */
   error?: boolean;
 }
 
+type OpenSource = { chunkId: string; quote: string };
+
 const newId = () =>
   globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
 
 export function Chat() {
-  const { selectedId, selected } = useCollections();
+  const router = useRouter();
+  const { selected, selectedId, setSelectedId } = useCollections();
+  const { activeId, refresh } = useConversations();
+
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
-  // The persisted thread this chat is continuing (null = a fresh thread that
-  // will be created on the next send).
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [openSource, setOpenSource] = useState<{
-    chunkId: string;
-    quote: string;
-  } | null>(null);
+  const [openSource, setOpenSource] = useState<OpenSource | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
+  // The conversation id that `messages` currently represents. A ref (not state)
+  // so we can compare against the URL without re-triggering the load effect.
+  const loadedIdRef = useRef<string | null>(null);
 
-  // Restore the active thread once a collection is known (on load, and whenever
-  // the selected corpus changes). We only restore a thread that belongs to the
-  // current collection — a conversation is scoped to one corpus — otherwise we
-  // start fresh. A stale/deleted id also resets cleanly.
+  // Load / reset the thread when the selected conversation (?c=) changes.
+  // Guarded so that navigating to a thread we just created (first send) doesn't
+  // refetch it. All setState happens inside the async callback (never the
+  // effect body) to avoid cascading-render lint.
   useEffect(() => {
-    if (!selectedId) return;
+    if (activeId === loadedIdRef.current) return;
     let cancelled = false;
-
-    const storedId =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem(ACTIVE_CONVERSATION_KEY)
-        : null;
-
-    // Route every setState through the async callback (never the effect body)
-    // so we don't trigger cascading renders — same pattern as the collection
-    // provider. A missing id resolves to null and falls through to "start fresh".
-    const restore = storedId
-      ? getConversationAction(storedId)
+    const load = activeId
+      ? getConversationAction(activeId)
       : Promise.resolve(null);
 
-    restore
-      .then((detail) => {
-        if (cancelled) return;
-        if (detail && detail.conversation.collectionId === selectedId) {
-          setConversationId(detail.conversation.id);
-          setMessages(
-            detail.messages.map((m) => ({
-              id: m.id,
-              role: m.role,
-              content: m.content,
-              citations: m.citations ?? undefined,
-            })),
-          );
-        } else {
-          // No stored thread, or it belongs to another corpus / is gone.
-          setConversationId(null);
-          setMessages([]);
-        }
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setConversationId(null);
+    load.then((detail) => {
+      if (cancelled) return;
+      if (!activeId) {
+        loadedIdRef.current = null;
         setMessages([]);
-      });
+        return;
+      }
+      if (detail) {
+        loadedIdRef.current = detail.conversation.id;
+        setMessages(
+          detail.messages.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            citations: m.citations ?? undefined,
+            answerable: (m.citations?.length ?? 0) > 0 ? true : undefined,
+          })),
+        );
+        // A thread is scoped to one corpus; make that corpus active so the
+        // sidebar list and header reflect where we are.
+        if (detail.conversation.collectionId !== selectedId) {
+          setSelectedId(detail.conversation.collectionId);
+        }
+      } else {
+        // Stale / deleted id — fall back to a fresh chat.
+        loadedIdRef.current = null;
+        setMessages([]);
+      }
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [selectedId]);
+  }, [activeId, selectedId, setSelectedId]);
 
   // Keep the latest message in view as tokens stream in.
   useEffect(() => {
@@ -97,34 +96,26 @@ export function Chat() {
     });
   }, [messages]);
 
-  // Append text to a specific assistant message (used per streamed token).
+  const patchMessage = (id: string, patch: Partial<Message>) =>
+    setMessages((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+    );
   const appendToMessage = (id: string, text: string) =>
     setMessages((prev) =>
       prev.map((m) => (m.id === id ? { ...m, content: m.content + text } : m)),
     );
 
-  const patchMessage = (id: string, patch: Partial<Message>) =>
-    setMessages((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, ...patch } : m)),
-    );
+  async function sendQuestion(text: string) {
+    const question = text.trim();
+    if (!question || isStreaming || !selectedId) return;
 
-  async function sendQuestion(text?: string) {
-    const question = (text ?? input).trim();
-    if (!question || isStreaming) return;
-
-    const userMessage: Message = {
-      id: newId(),
-      role: "user",
-      content: question,
-    };
+    const userMessage: Message = { id: newId(), role: "user", content: question };
     const assistantId = newId();
-    const assistantMessage: Message = {
-      id: assistantId,
-      role: "assistant",
-      content: "",
-    };
-    setMessages((prev) => [...prev, userMessage, assistantMessage]);
-    setInput("");
+    setMessages((prev) => [
+      ...prev,
+      userMessage,
+      { id: assistantId, role: "assistant", content: "" },
+    ]);
     setIsStreaming(true);
 
     try {
@@ -133,19 +124,16 @@ export function Chat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
-          collectionId: selectedId ?? undefined,
-          // Continue the current thread, or start a new one when null.
-          conversationId: conversationId ?? undefined,
+          collectionId: selectedId,
+          conversationId: loadedIdRef.current ?? undefined,
         }),
       });
 
-      // Non-streaming error responses (validation, engine failure) are JSON.
       if (!res.ok || !res.body) {
         const data = await res.json().catch(() => null);
         throw new Error(data?.error ?? `Request failed (${res.status}).`);
       }
 
-      // Read the NDJSON stream: decode bytes, split on newlines, parse events.
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -169,14 +157,12 @@ export function Chat() {
               answerable: event.answerable,
               citations: event.citations,
             });
-            // Remember the thread (created server-side on the first turn) so
-            // follow-ups continue it and a reload restores it.
-            setConversationId(event.conversationId);
-            if (typeof window !== "undefined") {
-              window.localStorage.setItem(
-                ACTIVE_CONVERSATION_KEY,
-                event.conversationId,
-              );
+            // Adopt the (possibly new) thread id and reflect it in the URL
+            // without a remount, then refresh the sidebar list.
+            if (loadedIdRef.current !== event.conversationId) {
+              loadedIdRef.current = event.conversationId;
+              refresh();
+              router.replace(`/?c=${event.conversationId}`, { scroll: false });
             }
           } else if (event.type === "error") {
             throw new Error(event.message);
@@ -184,87 +170,53 @@ export function Chat() {
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Something went wrong.";
-      patchMessage(assistantId, {
-        content: message,
-        error: true,
-      });
+      const message =
+        err instanceof Error ? err.message : "Something went wrong.";
+      patchMessage(assistantId, { content: message, error: true });
     } finally {
       setIsStreaming(false);
     }
   }
 
-  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Enter sends; Shift+Enter for a newline.
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      void sendQuestion();
-    }
-  }
-
-  const canSend = input.trim().length > 0 && !isStreaming;
   const starters = startersFor(selected?.slug);
+  const showWelcome = !activeId && messages.length === 0;
+  const showLoading = !!activeId && messages.length === 0;
 
   return (
-    <div className="flex flex-1 flex-col">
-      <header className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-        <h1 className="text-sm font-semibold tracking-tight">
-          {selected ? selected.name : "RAG Chat"}
-        </h1>
-        <p className="text-xs text-zinc-500">
-          {selected
-            ? `Answering only from “${selected.name}” (${selected.documentCount} document${selected.documentCount === 1 ? "" : "s"}), with citations.`
-            : "Answers come only from your ingested documents, with citations."}
-        </p>
-      </header>
+    <div className="flex h-full flex-col">
+      <div ref={threadRef} className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex min-h-full w-full max-w-[var(--reading-width)] flex-col px-4 py-8 sm:px-6">
+          {showWelcome && (
+            <Welcome
+              corpusName={selected?.name ?? null}
+              starters={starters}
+              onPick={sendQuestion}
+              disabled={isStreaming || !selectedId}
+            />
+          )}
 
-      <div ref={threadRef} className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="mx-auto flex max-w-2xl flex-col gap-6">
-          {messages.length === 0 && (
-            <div className="mt-16 flex flex-col items-center gap-4 text-center">
-              {starters.length > 0 ? (
-                <>
-                  <div className="flex flex-col items-center gap-1">
-                    <h2 className="text-lg font-semibold tracking-tight">
-                      Ask {selected ? `“${selected.name}”` : "your documents"}
-                    </h2>
-                    <p className="text-[13px] text-zinc-500">
-                      Try one of these to get started
-                    </p>
-                  </div>
-                  <div className="flex flex-col items-stretch gap-2">
-                    {starters.map((prompt) => (
-                      <button
-                        key={prompt}
-                        onClick={() => void sendQuestion(prompt)}
-                        disabled={isStreaming}
-                        className="rounded-full border border-zinc-200 px-4 py-2 text-sm text-zinc-700 transition-colors hover:border-accent hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:border-accent dark:hover:text-accent"
-                      >
-                        {prompt}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <p className="mt-4 text-sm text-zinc-500">
-                  Ask a question about your documents to get started.
-                </p>
-              )}
+          {showLoading && (
+            <div className="flex justify-center pt-20 text-sm text-faint">
+              Loading conversation…
             </div>
           )}
 
-          {messages.map((m) => (
-            <MessageBubble
-              key={m.id}
-              message={m}
-              streaming={
-                isStreaming &&
-                m.role === "assistant" &&
-                m.id === messages[messages.length - 1]?.id
-              }
-              onOpenSource={setOpenSource}
-            />
-          ))}
+          {messages.length > 0 && (
+            <div className="flex flex-col gap-8">
+              {messages.map((m, i) => (
+                <MessageView
+                  key={m.id}
+                  message={m}
+                  streaming={
+                    isStreaming &&
+                    m.role === "assistant" &&
+                    i === messages.length - 1
+                  }
+                  onOpenSource={setOpenSource}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -274,96 +226,70 @@ export function Chat() {
         onClose={() => setOpenSource(null)}
       />
 
-      <div className="border-t border-zinc-200 px-4 py-3 dark:border-zinc-800">
-        <div className="mx-auto flex max-w-2xl items-end gap-2">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            rows={1}
-            placeholder="Ask a question…"
-            disabled={isStreaming}
-            className="flex-1 resize-none rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none transition-colors focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900"
-          />
-          <button
-            onClick={() => void sendQuestion()}
-            disabled={!canSend}
-            className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
-          >
-            {isStreaming ? "…" : "Send"}
-          </button>
-        </div>
-      </div>
+      <Composer
+        onSend={sendQuestion}
+        disabled={isStreaming || !selectedId}
+        placeholder={
+          selectedId
+            ? `Ask about ${selected?.name ?? "this corpus"}…`
+            : "Select a corpus to begin…"
+        }
+      />
     </div>
   );
 }
 
-function MessageBubble({
-  message,
-  streaming,
-  onOpenSource,
+/* --------------------------------------------------------------------------
+ * Welcome / empty state
+ * ------------------------------------------------------------------------ */
+function Welcome({
+  corpusName,
+  starters,
+  onPick,
+  disabled,
 }: {
-  message: Message;
-  streaming: boolean;
-  onOpenSource: (source: { chunkId: string; quote: string }) => void;
+  corpusName: string | null;
+  starters: string[];
+  onPick: (q: string) => void;
+  disabled: boolean;
 }) {
-  const isUser = message.role === "user";
-
-  // User questions stay a small right-aligned pill; the assistant answer is
-  // rendered as plain prose in the column so the *answer* is the visual anchor.
-  if (isUser) {
-    return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl bg-zinc-100 px-4 py-2 text-sm text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100">
-          {message.content}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="w-full">
-      {message.error ? (
-        <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-          {message.content}
-        </div>
-      ) : (
-        <div className="text-[16px] leading-7 whitespace-pre-wrap text-zinc-900 dark:text-zinc-100">
-          {message.content}
-          {/* Streaming indicators: pulsing dots before the first token, then a
-              slim blinking caret trailing the text as it grows. */}
-          {streaming && !message.content && <ThinkingDots />}
-          {streaming && message.content && (
-            <span className="ml-0.5 inline-block h-[1.1em] w-[2px] -mb-0.5 animate-pulse bg-zinc-500 align-middle" />
-          )}
-        </div>
-      )}
-
-      {message.citations && message.citations.length > 0 && (
-        <div className="mt-4 flex flex-col gap-2">
-          <p className="text-[11px] font-semibold tracking-wide text-zinc-400 uppercase">
-            Sources
+    <div
+      className="flex flex-1 flex-col items-center justify-center gap-6 text-center"
+      style={{
+        backgroundImage:
+          "radial-gradient(46% 40% at 50% 48%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 72%)",
+      }}
+    >
+      <div className="flex flex-col items-center gap-5">
+        <DocumentStack />
+        <div className="space-y-2">
+          <h2 className="text-xl font-semibold tracking-tight">
+            {corpusName ? `Ask ${corpusName}` : "Ask your documents"}
+          </h2>
+          <p className="mx-auto max-w-md text-sm leading-relaxed text-muted">
+            {corpusName
+              ? "Grounded answers only from the documents in this corpus and cites every source it uses. When the answer isn’t in them, it tells you plainly instead of guessing."
+              : "Select a corpus from the sidebar to start asking questions."}
           </p>
-          {message.citations.map((c) => (
+        </div>
+        {corpusName && <HowItWorks />}
+      </div>
+
+      {starters.length > 0 && (
+        <div className="flex w-full max-w-md flex-col gap-2 pt-2">
+          <p className="text-[11px] font-medium tracking-wide text-faint uppercase">
+            Try asking
+          </p>
+          {starters.map((prompt) => (
             <button
-              key={c.chunkId}
-              onClick={() => onOpenSource({ chunkId: c.chunkId, quote: c.quote })}
-              className="group flex items-start gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-left transition-colors hover:border-accent/60 hover:bg-accent/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-accent/60 dark:hover:bg-accent/10"
+              key={prompt}
+              onClick={() => onPick(prompt)}
+              disabled={disabled}
+              className="group flex items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-left text-sm text-foreground shadow-xs transition-colors hover:border-accent/40 hover:bg-accent-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45 disabled:opacity-50"
             >
-              <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-accent/10 text-[11px] font-semibold text-accent">
-                {c.marker}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] font-medium text-zinc-700 dark:text-zinc-300">
-                  {c.documentFilename}
-                  {c.page != null && (
-                    <span className="font-normal text-zinc-400"> · p.{c.page}</span>
-                  )}
-                </span>
-                <span className="mt-0.5 block line-clamp-2 text-xs text-zinc-500">
-                  {c.snippet}
-                </span>
-              </span>
+              <SparkIcon className="shrink-0 text-faint transition-colors group-hover:text-accent" />
+              <span className="min-w-0">{prompt}</span>
             </button>
           ))}
         </div>
@@ -372,13 +298,200 @@ function MessageBubble({
   );
 }
 
-/** Three pulsing dots shown while the answer is still being generated. */
+/** Three-step orientation for first-time visitors. Kept deliberately the most
+ * lightweight element on the empty state — muted, one line — so the starter
+ * chips stay the visual priority. */
+const HOW_IT_WORKS = [
+  "Point it at your documents",
+  "Ask a question",
+  "Get answers with sources you can open",
+];
+
+function HowItWorks() {
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-[13px] font-medium text-muted">
+      {HOW_IT_WORKS.map((step, i) => (
+        <Fragment key={step}>
+          {i > 0 && (
+            <ChevronDownIcon
+              width={13}
+              height={13}
+              className="shrink-0 -rotate-90 text-faint"
+            />
+          )}
+          <span>{step}</span>
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Messages
+ * ------------------------------------------------------------------------ */
+function MessageView({
+  message,
+  streaming,
+  onOpenSource,
+}: {
+  message: Message;
+  streaming: boolean;
+  onOpenSource: (s: OpenSource) => void;
+}) {
+  if (message.role === "user") {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] rounded-2xl rounded-br-md border border-border bg-surface-2 px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-foreground">
+          {message.content}
+        </div>
+      </div>
+    );
+  }
+
+  // Error
+  if (message.error) {
+    return (
+      <div className="flex items-start gap-2.5 rounded-lg border border-danger/30 bg-danger-subtle px-4 py-3 text-sm text-danger">
+        <WarnIcon />
+        <span>{message.content}</span>
+      </div>
+    );
+  }
+
+  // Honest "not in the documents"
+  if (message.answerable === false) {
+    return (
+      <div className="flex items-start gap-3 rounded-xl border border-border bg-surface-2 px-4 py-3.5 text-[15px] leading-relaxed text-muted">
+        <span className="mt-0.5 shrink-0 text-faint">
+          <InfoIcon />
+        </span>
+        <span className="whitespace-pre-wrap">{message.content}</span>
+      </div>
+    );
+  }
+
+  const citations = message.citations
+    ? [...message.citations].sort((a, b) => a.marker - b.marker)
+    : [];
+
+  return (
+    <div>
+      <div className="text-answer whitespace-pre-wrap text-foreground">
+        {message.content}
+        {streaming && !message.content && <ThinkingDots />}
+        {streaming && message.content && (
+          <span className="ml-0.5 inline-block h-[1.05em] w-[2px] -mb-0.5 animate-pulse bg-muted align-middle" />
+        )}
+        {/* Inline citation markers, trailing the answer prose */}
+        {!streaming && citations.length > 0 && (
+          <span className="ml-1.5 inline-flex flex-wrap gap-1 align-middle">
+            {citations.map((c) => (
+              <button
+                key={`m-${c.chunkId}`}
+                onClick={() =>
+                  onOpenSource({ chunkId: c.chunkId, quote: c.quote })
+                }
+                aria-label={`Open source ${c.marker}`}
+                className="inline-flex h-[19px] min-w-[19px] items-center justify-center rounded-[6px] bg-accent-subtle px-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent hover:text-accent-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45"
+              >
+                {c.marker}
+              </button>
+            ))}
+          </span>
+        )}
+      </div>
+
+      {!streaming && citations.length > 0 && (
+        <SourceList citations={citations} onOpenSource={onOpenSource} />
+      )}
+    </div>
+  );
+}
+
+function SourceList({
+  citations,
+  onOpenSource,
+}: {
+  citations: CitationPayload[];
+  onOpenSource: (s: OpenSource) => void;
+}) {
+  return (
+    <div className="mt-4 flex flex-col gap-2">
+      <p className="text-[11px] font-semibold tracking-wide text-faint uppercase">
+        Sources
+      </p>
+      {citations.map((c) => (
+        <button
+          key={c.chunkId}
+          onClick={() => onOpenSource({ chunkId: c.chunkId, quote: c.quote })}
+          className="group flex items-start gap-3 rounded-lg border border-border bg-surface px-3 py-2.5 text-left shadow-xs transition-colors hover:border-accent/50 hover:bg-accent-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45"
+        >
+          <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-accent-subtle text-[11px] font-semibold text-accent group-hover:bg-accent group-hover:text-accent-fg">
+            {c.marker}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[13px] font-medium text-foreground">
+              {c.documentFilename}
+              {c.page != null && (
+                <span className="font-normal text-faint"> · p.{c.page}</span>
+              )}
+            </span>
+            <span className="mt-0.5 line-clamp-2 block text-xs leading-relaxed text-muted">
+              {c.snippet}
+            </span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ThinkingDots() {
   return (
-    <span className="inline-flex items-center gap-1 align-middle text-zinc-400">
+    <span className="inline-flex items-center gap-1 align-middle text-faint">
       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current" />
     </span>
+  );
+}
+
+function InfoIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M8 7.25v3.25M8 5.4h.01"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function WarnIcon() {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden
+      className="mt-0.5 shrink-0"
+    >
+      <path
+        d="M8 2.75 14 13H2L8 2.75Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8 6.75v2.5M8 11.2h.01"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }

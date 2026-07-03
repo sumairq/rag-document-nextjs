@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useCollections } from "@/components/collection-provider";
+import { DocumentStack } from "@/components/document-stack";
+import { Button } from "@/components/ui/button";
+import { PlusIcon, TrashIcon } from "@/components/ui/icons";
 import type { DocumentSummary } from "@/lib/chat/protocol";
+import { cn } from "@/lib/cn";
 
 type DocsState =
   | { forId: string; status: "loaded"; items: DocumentSummary[] }
@@ -29,9 +33,6 @@ export function CorpusManager() {
   const [creating, setCreating] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Load documents for the selected collection. setState only happens in the
-  // async callbacks; the loading state is derived below. `reloadKey` lets event
-  // handlers (upload/delete) re-trigger a fetch.
   useEffect(() => {
     if (!selectedId) return;
     let cancelled = false;
@@ -42,14 +43,16 @@ export function CorpusManager() {
         return data.documents as DocumentSummary[];
       })
       .then((items) => {
-        if (!cancelled) setDocsState({ forId: selectedId, status: "loaded", items });
+        if (!cancelled)
+          setDocsState({ forId: selectedId, status: "loaded", items });
       })
       .catch((err: unknown) => {
         if (!cancelled) {
           setDocsState({
             forId: selectedId,
             status: "error",
-            message: err instanceof Error ? err.message : "Failed to load documents.",
+            message:
+              err instanceof Error ? err.message : "Failed to load documents.",
           });
         }
       });
@@ -115,129 +118,164 @@ export function CorpusManager() {
   }
 
   const isReadOnly = selected?.isSample ?? false;
+  const inputClass =
+    "w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-faint focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/30";
 
   return (
-    <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-6">
-      <div className="mb-6">
-        <h1 className="text-lg font-semibold tracking-tight">Corpus</h1>
-        <p className="text-sm text-zinc-500">
-          {selected
-            ? `Managing “${selected.name}”${selected.description ? ` — ${selected.description}` : ""}`
-            : "Select or create a collection to manage its documents."}
-        </p>
-      </div>
-
-      {/* Create collection */}
-      <form onSubmit={onCreateCollection} className="mb-6 flex gap-2">
-        <input
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          placeholder="New collection name…"
-          className="flex-1 rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-        />
-        <button
-          type="submit"
-          disabled={creating || newName.trim().length === 0}
-          className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
-        >
-          Create
-        </button>
-      </form>
-
-      {/* Upload (hidden for read-only sample collections) */}
-      {isReadOnly ? (
-        <div className="mb-6 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
-          This is a preloaded <span className="font-medium">sample</span> collection
-          (read-only). Create your own collection above to upload and manage
-          documents.
-        </div>
-      ) : (
-        <div className="mb-6 rounded-lg border border-dashed border-zinc-300 p-4 dark:border-zinc-700">
-          <p className="mb-2 text-sm font-medium">Add a document</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".pdf,.docx,.txt,.md"
-              disabled={!selectedId || upload.status === "uploading"}
-              className="text-sm text-zinc-600 file:mr-3 file:rounded-md file:border-0 file:bg-zinc-900 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white dark:text-zinc-400 dark:file:bg-zinc-100 dark:file:text-zinc-900"
-            />
-            <button
-              onClick={onUpload}
-              disabled={!selectedId || upload.status === "uploading"}
-              className="rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
-            >
-              {upload.status === "uploading" ? "Ingesting…" : "Upload"}
-            </button>
-          </div>
-          <p className="mt-2 text-xs text-zinc-400">PDF, DOCX, TXT, or Markdown.</p>
-          {upload.status === "uploading" && (
-            <p className="mt-2 text-xs text-zinc-500">
-              Ingesting “{upload.name}” — parsing, chunking, embedding…
-            </p>
-          )}
-          {upload.status === "error" && (
-            <p className="mt-2 text-xs text-red-600 dark:text-red-400">{upload.message}</p>
-          )}
-        </div>
-      )}
-
-      {/* Document list */}
-      <div>
-        <p className="mb-2 text-sm font-medium">Documents</p>
-        {!current && <p className="text-sm text-zinc-400">Loading…</p>}
-        {current?.status === "error" && (
-          <p className="text-sm text-red-600 dark:text-red-400">{current.message}</p>
-        )}
-        {current?.status === "loaded" && current.items.length === 0 && (
-          <p className="text-sm text-zinc-400">
-            No documents yet. Upload one above to start asking questions.
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6">
+        <div className="mb-8">
+          <h1 className="text-lg font-semibold tracking-tight">
+            {selected ? selected.name : "Corpus"}
+          </h1>
+          <p className="mt-1 text-sm text-muted">
+            {selected
+              ? selected.description
+                ? selected.description
+                : "Manage the documents that answers in this corpus are drawn from."
+              : "Select or create a corpus to manage its documents."}
           </p>
-        )}
-        {current?.status === "loaded" && current.items.length > 0 && (
-          <ul className="flex flex-col gap-2">
-            {current.items.map((doc) => (
-              <li
-                key={doc.id}
-                className="flex items-center justify-between gap-3 rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={doc.status} />
-                    <p className="truncate text-sm font-medium">{doc.filename}</p>
+        </div>
+
+        {/* Create corpus */}
+        <section className="mb-8">
+          <h2 className="mb-2 text-[13px] font-semibold text-foreground">
+            New corpus
+          </h2>
+          <form onSubmit={onCreateCollection} className="flex gap-2">
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Name a new corpus…"
+              className={inputClass}
+            />
+            <Button
+              type="submit"
+              variant="secondary"
+              disabled={creating || newName.trim().length === 0}
+              className="shrink-0"
+            >
+              <PlusIcon />
+              Create
+            </Button>
+          </form>
+        </section>
+
+        {/* Upload */}
+        <section className="mb-8">
+          <h2 className="mb-2 text-[13px] font-semibold text-foreground">
+            Documents
+          </h2>
+          {isReadOnly ? (
+            <div className="rounded-lg border border-border bg-surface-2 px-4 py-3.5 text-sm leading-relaxed text-muted">
+              This is a preloaded{" "}
+              <span className="font-medium text-foreground">sample</span> corpus
+              (read-only). Create your own corpus above to upload and manage
+              documents.
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border-strong bg-surface p-4">
+              <p className="mb-2.5 text-sm font-medium text-foreground">
+                Add a document
+              </p>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".pdf,.docx,.txt,.md"
+                  disabled={!selectedId || upload.status === "uploading"}
+                  className="text-sm text-muted file:mr-3 file:cursor-pointer file:rounded-md file:border file:border-border-strong file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground hover:file:bg-surface-2"
+                />
+                <Button
+                  variant="primary"
+                  onClick={onUpload}
+                  disabled={!selectedId || upload.status === "uploading"}
+                >
+                  {upload.status === "uploading" ? "Ingesting…" : "Upload"}
+                </Button>
+              </div>
+              <p className="mt-2.5 text-xs text-faint">
+                PDF, DOCX, TXT, or Markdown.
+              </p>
+              {upload.status === "uploading" && (
+                <p className="mt-2 text-xs text-muted">
+                  Ingesting “{upload.name}” — parsing, chunking, embedding…
+                </p>
+              )}
+              {upload.status === "error" && (
+                <p className="mt-2 text-xs text-danger">{upload.message}</p>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* Document list */}
+        <section>
+          {!current && <p className="text-sm text-faint">Loading…</p>}
+          {current?.status === "error" && (
+            <p className="text-sm text-danger">{current.message}</p>
+          )}
+          {current?.status === "loaded" && current.items.length === 0 && (
+            <div className="flex flex-col items-center gap-4 rounded-lg border border-border bg-surface-2 px-4 py-9 text-center">
+              <DocumentStack />
+              <p className="text-sm text-muted">
+                No documents yet. Upload one above to start asking questions.
+              </p>
+            </div>
+          )}
+          {current?.status === "loaded" && current.items.length > 0 && (
+            <ul className="flex flex-col gap-2">
+              {current.items.map((doc) => (
+                <li
+                  key={doc.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface px-3.5 py-2.5 shadow-xs"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={doc.status} />
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {doc.filename}
+                      </p>
+                    </div>
+                    <p className="mt-1 text-xs text-faint">
+                      {doc.chunkCount} chunks · {fmtBytes(doc.byteSize)}
+                      {doc.error ? ` · ${doc.error}` : ""}
+                    </p>
                   </div>
-                  <p className="mt-1 text-xs text-zinc-400">
-                    {doc.chunkCount} chunks · {fmtBytes(doc.byteSize)}
-                    {doc.error ? ` · ${doc.error}` : ""}
-                  </p>
-                </div>
-                {!isReadOnly && (
-                  <button
-                    onClick={() => onDelete(doc)}
-                    className="shrink-0 rounded-md border border-zinc-300 px-2.5 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-zinc-700 dark:text-red-400 dark:hover:bg-red-950"
-                  >
-                    Remove
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+                  {!isReadOnly && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onDelete(doc)}
+                      className="shrink-0 text-muted hover:text-danger"
+                    >
+                      <TrashIcon width={14} height={14} />
+                      Remove
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
-    </main>
+    </div>
   );
 }
 
 function StatusBadge({ status }: { status: string }) {
   const styles =
     status === "ready"
-      ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400"
+      ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
       : status === "failed"
-        ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400"
-        : "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400";
+        ? "bg-danger/12 text-danger"
+        : "bg-amber-500/15 text-amber-600 dark:text-amber-400";
   return (
     <span
-      className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${styles}`}
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+        styles,
+      )}
     >
       {status}
     </span>

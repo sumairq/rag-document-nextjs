@@ -1,31 +1,188 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-  /* Restrained accent — the only color on the page, used for citation badges,
-     focus rings, links, and active nav. Everything else stays neutral zinc. */
-  --accent: #2563eb; /* blue-600 */
-}
+/* ==========================================================================
+   Design tokens
+   --------------------------------------------------------------------------
+   The whole app is built off these CSS variables. Reconcile a value here and
+   it propagates everywhere. Two layers:
+     1. Raw semantic tokens on :root (+ dark override).
+     2. `@theme inline` maps them to Tailwind utilities (bg-surface, text-muted,
+        border-border, rounded-lg, shadow-md, text-answer, …).
+   Aesthetic: calm SaaS chrome (neutral zinc, generous spacing) with a single
+   restrained blue accent reserved for citations, links, focus, and primary
+   actions. Everything else stays neutral.
+   ========================================================================== */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-accent: var(--accent);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+:root {
+  /* Surfaces — a soft off-white canvas with white cards for quiet depth. */
+  --background: #f7f7f8; /* app canvas (behind panels) */
+  --surface: #ffffff; /* sidebar, chat, cards, composer */
+  --surface-2: #f2f2f4; /* hover / subtle raised */
+  --surface-3: #e9e9ec; /* pressed / active row */
+
+  /* Text */
+  --foreground: #18181b; /* primary text (zinc-900) */
+  --muted: #6b6b74; /* secondary text */
+  --faint: #9b9ba4; /* tertiary text, placeholders */
+
+  /* Lines */
+  --border: #e7e7ea; /* default hairline */
+  --border-strong: #d6d6db; /* inputs, emphasised edges */
+
+  /* Accent — the only chromatic color in the UI. */
+  --accent: #2563eb; /* blue-600 */
+  --accent-hover: #1d4ed8; /* blue-700 */
+  --accent-active: #1e40af; /* blue-800 */
+  --accent-fg: #ffffff; /* text/icon on accent fill */
+  --accent-subtle: #eef3ff; /* tinted accent background */
+
+  /* Destructive */
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --danger-fg: #ffffff;
+  --danger-subtle: #fef2f2;
+
+  /* Citation highlight in the source panel (amber, deliberately warm). */
+  --highlight: #fde68a;
+  --highlight-fg: #422006;
+
+  /* Focus ring color (used with an alpha via ring utilities). */
+  --ring: var(--accent);
+
+  /* Radius scale */
+  --radius-xs: 5px;
+  --radius-sm: 7px;
+  --radius-md: 9px;
+  --radius-lg: 13px;
+  --radius-xl: 18px;
+
+  /* Shadows — soft and low, never harsh. */
+  --shadow-xs: 0 1px 2px rgba(24, 24, 27, 0.05);
+  --shadow-sm: 0 1px 3px rgba(24, 24, 27, 0.07), 0 1px 2px rgba(24, 24, 27, 0.04);
+  --shadow-md: 0 6px 20px rgba(24, 24, 27, 0.09);
+  --shadow-lg: 0 16px 40px rgba(24, 24, 27, 0.16);
+
+  /* Layout tokens */
+  --sidebar-width: 17rem;
+  --header-height: 3.25rem;
+  --reading-width: 46rem; /* constrained answer measure — not full-bleed */
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #0a0a0b;
+    --surface: #141416;
+    --surface-2: #1c1c1f;
+    --surface-3: #26262a;
+
+    --foreground: #f4f4f5;
+    --muted: #a0a0aa;
+    --faint: #6c6c76;
+
+    --border: #262629;
+    --border-strong: #37373d;
+
     --accent: #3b82f6; /* blue-500 — a touch brighter on dark */
+    --accent-hover: #60a5fa;
+    --accent-active: #2563eb;
+    --accent-fg: #ffffff;
+    --accent-subtle: #172033;
+
+    --danger: #ef4444;
+    --danger-hover: #f87171;
+    --danger-fg: #ffffff;
+    --danger-subtle: #2a1414;
+
+    --highlight: #fcd34d;
+    --highlight-fg: #2a1a02;
+
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.55);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.65);
   }
 }
 
+@theme inline {
+  /* Colors → utilities (bg-*, text-*, border-*, ring-*) */
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-active: var(--accent-active);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-fg: var(--danger-fg);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-highlight: var(--highlight);
+  --color-highlight-fg: var(--highlight-fg);
+  --color-ring: var(--ring);
+
+  /* Radius → rounded-* */
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+
+  /* Shadow → shadow-* */
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+
+  /* Type scale (a few semantic sizes beyond Tailwind's defaults) */
+  --text-answer: 1.0625rem; /* readable answer prose (17px) */
+  --text-answer--line-height: 1.7;
+
+  /* Fonts */
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Consistent, calm focus treatment across the app. */
+:focus-visible {
+  outline: none;
+}
+
+/* Selection uses the accent, subtly. */
+::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* Quiet, thin scrollbars that match the chrome. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--faint);
 }
